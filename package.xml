@@ -1,0 +1,33 @@
+<package>
+  <name>barrett_hand_sim_dart</name>
+  <version>1.0.0</version>
+  <description>
+    This package contains python scripts of routines for barrett_hand_sim_dart.
+  </description>
+  <author email="dawid.seredynski@gmail.com">Dawid Seredynski</author>
+  <maintainer email="dawid.seredynski@gmail.com">Dawid Seredynski</maintainer>
+
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>rtt</build_depend>
+  <build_depend>ocl</build_depend>
+  <build_depend>rtt_ros</build_depend>
+  <build_depend>rtt_rosclock</build_depend>
+  <build_depend>tf</build_depend>
+  <build_depend>planer_utils</build_depend>
+
+  <run_depend>rtt</run_depend>
+  <run_depend>rtt_ros</run_depend>
+  <run_depend>rtt_rosnode</run_depend> 
+  <run_depend>rtt_roscomm</run_depend>
+  <run_depend>tf</run_depend>
+  <run_depend>rtt_sensor_msgs</run_depend>
+  <run_depend>roscpp</run_depend>
+  <run_depend>visualization_msgs</run_depend>
+  <run_depend>message_runtime</run_depend>
+  <run_depend>rtt_std_msgs</run_depend>
+  <run_depend>planer_utils</run_depend>
+
+</package>
