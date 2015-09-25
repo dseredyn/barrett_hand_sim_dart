@@ -73,6 +73,10 @@ void publishTransform(tf::TransformBroadcaster &br, const KDL::Frame &T_B_F, con
 }
 
 class GripperState {
+//    class Puck {
+//    public:
+//    };
+
     class Joint {
     public:
         double q_des_;
@@ -82,6 +86,12 @@ class GripperState {
         double Td_;
         double Ts_;
         double u_max_;
+        bool backdrivable_;
+        bool breakable_;
+        bool stopped_;
+        std::vector<double > q_hist_;
+        std::vector<bool > u_hist_;
+        int q_hist_idx_;
     };
 
     class JointMimic : public Joint {
@@ -96,39 +106,87 @@ class GripperState {
     std::vector<std::string > joint_names_vec_;
 
 public:
-    bool addJoint(const std::string &joint_name, double Kc, double KcTi, double Td, double Ts, double u_max, const std::string &mimic_joint=std::string(), double mimic_factor=0.0, double mimic_offset=0.0) {
+    bool addJoint(const std::string &joint_name, double Kc, double KcTi, double Td, double Ts, double u_max, bool backdrivable, bool breakable) {
         if (joint_map_.find(joint_name) != joint_map_.end()) {
             std::cout << "ERROR: addJoint joint_map_.find(\"" << joint_name << "\") != joint_map_.end()" << std::endl;
             return false;
         }
+        Joint j;
+        j.Kc_ = Kc;
+        j.KcTi_ = KcTi;
+        j.Td_ = Td;
+        j.Ts_ = Ts;
+        j.u_max_ = u_max;
+        j.backdrivable_ = backdrivable;
+        j.breakable_ = breakable;
+        j.stopped_ = false;
+        j.q_hist_.resize(10, 0.0);
+        j.q_hist_idx_ = 0;
+        joint_map_.insert( std::make_pair(joint_name, j) );
+        joint_names_vec_.push_back(joint_name);
+        return true;
+    }
+
+    bool addJointMimic(const std::string &joint_name, double Kc, double KcTi, double Td, double Ts, double u_max, bool backdrivable, const std::string &mimic_joint, double mimic_factor, double mimic_offset) {
         if (joint_mimic_map_.find(joint_name) != joint_mimic_map_.end()) {
             std::cout << "ERROR: addJoint joint_mimic_map_.find(\"" << joint_name << "\") != joint_mimic_map_.end()" << std::endl;
             return false;
         }
 
-        if (mimic_joint.empty()) {
-            Joint j;
-            j.Kc_ = Kc;
-            j.KcTi_ = KcTi;
-            j.Td_ = Td;
-            j.Ts_ = Ts;
-            j.u_max_ = u_max;
-            joint_map_.insert( std::make_pair(joint_name, j) );
-        }
-        else {
-            JointMimic j;
-            j.Kc_ = Kc;
-            j.KcTi_ = KcTi;
-            j.Td_ = Td;
-            j.Ts_ = Ts;
-            j.u_max_ = u_max;
-            j.mimic_joint_name_ = mimic_joint;
-            j.mimic_factor_ = mimic_factor;
-            j.mimic_offset_ = mimic_offset;
-            joint_mimic_map_.insert( std::make_pair(joint_name, j) );
-        }
+        JointMimic j;
+        j.Kc_ = Kc;
+        j.KcTi_ = KcTi;
+        j.Td_ = Td;
+        j.Ts_ = Ts;
+        j.u_max_ = u_max;
+        j.mimic_joint_name_ = mimic_joint;
+        j.mimic_factor_ = mimic_factor;
+        j.mimic_offset_ = mimic_offset;
+        j.backdrivable_ = backdrivable;
+        j.breakable_ = false;
+        j.stopped_ = false;
+        j.q_hist_.resize(10, 0.0);
+        j.q_hist_[0] = 100.0;
+        j.q_hist_idx_ = 1;
+        joint_mimic_map_.insert( std::make_pair(joint_name, j) );
         joint_names_vec_.push_back(joint_name);
         return true;
+    }
+
+    bool isBackdrivable(const std::string &joint_name) const {
+        std::map<std::string, Joint >::const_iterator it = joint_map_.find(joint_name);
+        if (it != joint_map_.end()) {
+            return it->second.backdrivable_;
+        }
+        else {
+            std::map<std::string, JointMimic >::const_iterator it2 = joint_mimic_map_.find(joint_name);
+            if (it2 != joint_mimic_map_.end()) {
+                return it2->second.backdrivable_;
+            }
+            else {
+                std::cout << "ERROR: isBackdrivable it == joint_map_.end() " << joint_name << std::endl;
+                return false;
+            }
+        }
+        return false;
+    }
+
+    bool isStopped(const std::string &joint_name) const {
+        std::map<std::string, Joint >::const_iterator it = joint_map_.find(joint_name);
+        if (it != joint_map_.end()) {
+            return it->second.stopped_;
+        }
+        else {
+            std::map<std::string, JointMimic >::const_iterator it2 = joint_mimic_map_.find(joint_name);
+            if (it2 != joint_mimic_map_.end()) {
+                return it2->second.stopped_;
+            }
+            else {
+                std::cout << "ERROR: isStopped it == joint_map_.end() " << joint_name << std::endl;
+                return false;
+            }
+        }
+        return false;
     }
 
     const std::vector<std::string >& getJointNames() const {
@@ -153,16 +211,37 @@ public:
                 std::cout << "ERROR: controlStep qit == q_map.end() " << it->first << std::endl;
                 return false;
             }
+            double q = qit->second;
             Joint &j = it->second;
             j.e2_ = j.e1_;
             j.e1_ = j.e0_;
-            j.e0_ = j.q_des_ - qit->second;
+            j.e0_ = j.q_des_ - q;
             j.u_ = j.u_ + j.Kc_ * (j.e0_ - j.e1_) + j.KcTi_ * j.Ts_ * j.e0_ + j.Kc_ * j.Td_ / j.Ts_ * (j.e0_ - 2.0 * j.e1_ + j.e2_);
             if (j.u_ > j.u_max_) {
                 j.u_ = j.u_max_;
+                j.u_hist_[j.q_hist_idx_] = true;
             }
-            if (j.u_ < -j.u_max_) {
+            else if (j.u_ < -j.u_max_) {
                 j.u_ = -j.u_max_;
+                j.u_hist_[j.q_hist_idx_] = true;
+            }
+            else {
+                j.u_hist_[j.q_hist_idx_] = false;
+            }
+            j.q_hist_[j.q_hist_idx_] = q;
+            j.q_hist_idx_ = (j.q_hist_idx_ + 1) % j.q_hist_.size();
+
+            double mean = 0.0;
+            for (int hidx = 0; hidx < j.q_hist_.size(); hidx++) {
+                mean += j.q_hist_[hidx];
+            }
+            mean /= j.q_hist_.size();
+            double variance = 0.0;
+            for (int hidx = 0; hidx < j.q_hist_.size(); hidx++) {
+                variance += (mean - j.q_hist_[hidx]) * (mean - j.q_hist_[hidx]);
+            }
+            if (std::sqrt(variance) < 0.001) {
+                j.stopped_ = true;
             }
         }
 
@@ -173,8 +252,10 @@ public:
                 std::cout << "ERROR: controlStep qit == q_map.end() " << it->first << std::endl;
                 return false;
             }
+            double q = qit->second;
             JointMimic &j = it->second;
             std::map<std::string, double>::const_iterator qit_mim = q_map.find(j.mimic_joint_name_);
+            Joint &j2 = joint_map_.find(j.mimic_joint_name_)->second;
             if (qit_mim == q_map.end()) {
                 std::cout << "ERROR: controlStep qit_mim == q_map.end() " << j.mimic_joint_name_ << std::endl;
                 return false;
@@ -182,13 +263,35 @@ public:
             j.q_des_ = qit_mim->second * j.mimic_factor_ + j.mimic_offset_;
             j.e2_ = j.e1_;
             j.e1_ = j.e0_;
-            j.e0_ = j.q_des_ - qit->second;
+            j.e0_ = j.q_des_ - q;
             j.u_ = j.u_ + j.Kc_ * (j.e0_ - j.e1_) + j.KcTi_ * j.Ts_ * j.e0_ + j.Kc_ * j.Td_ / j.Ts_ * (j.e0_ - 2.0 * j.e1_ + j.e2_);
             if (j.u_ > j.u_max_) {
                 j.u_ = j.u_max_;
+                j.u_hist_[j.q_hist_idx_] = true;
             }
-            if (j.u_ < -j.u_max_) {
+            else if (j.u_ < -j.u_max_) {
                 j.u_ = -j.u_max_;
+                j.u_hist_[j.q_hist_idx_] = true;
+            }
+            else {
+                j.u_hist_[j.q_hist_idx_] = false;
+            }
+            j.q_hist_[j.q_hist_idx_] = q;
+            j.q_hist_idx_ = (j.q_hist_idx_ + 1) % j.q_hist_.size();
+
+            if (j2.stopped_) {
+                double mean = 0.0;
+                for (int hidx = 0; hidx < j.q_hist_.size(); hidx++) {
+                    mean += j.q_hist_[hidx];
+                }
+                mean /= j.q_hist_.size();
+                double variance = 0.0;
+                for (int hidx = 0; hidx < j.q_hist_.size(); hidx++) {
+                    variance += (mean - j.q_hist_[hidx]) * (mean - j.q_hist_[hidx]);
+                }
+                if (std::sqrt(variance) < 0.001) {
+                    j.stopped_ = true;
+                }
             }
         }
         return true;
@@ -268,6 +371,7 @@ int main(int argc, char** argv) {
 
     dart::simulation::World* world = new dart::simulation::World();
 
+//    std::cout << "world time step: " << world->getTimeStep() << std::endl;
     world->addSkeleton(bh);
     world->addSkeleton(domino);
 
@@ -277,15 +381,15 @@ int main(int argc, char** argv) {
 
     GripperState gs;
 //    gs.addJoint(const std::string &joint_name, double Kc, double KcTi, double Td, double Ts, double u_max_, const std::string &mimic_joint=std::string(), double mimic_factor=0.0, double mimic_offset=0.0);
-    gs.addJoint("right_HandFingerOneKnuckleOneJoint", 50.0, 15.0, 0.0, 0.001, 50.0);
-    gs.addJoint("right_HandFingerOneKnuckleTwoJoint", 50.0, 15.0, 0.0, 0.001, 50.0);
-    gs.addJoint("right_HandFingerTwoKnuckleTwoJoint", 50.0, 15.0, 0.0, 0.001, 50.0);
-    gs.addJoint("right_HandFingerThreeKnuckleTwoJoint", 50.0, 15.0, 0.0, 0.001, 50.0);
+    gs.addJoint("right_HandFingerOneKnuckleOneJoint", 100.0, 15.0, 0.0, 0.001, 5.0, true, false);
+    gs.addJoint("right_HandFingerOneKnuckleTwoJoint", 100.0, 15.0, 0.0, 0.001, 5.0, false, true);
+    gs.addJoint("right_HandFingerTwoKnuckleTwoJoint", 100.0, 15.0, 0.0, 0.001, 5.0, false, true);
+    gs.addJoint("right_HandFingerThreeKnuckleTwoJoint", 100.0, 15.0, 0.0, 0.001, 5.0, false, true);
 
-    gs.addJoint("right_HandFingerTwoKnuckleOneJoint", 200.0, 15.0, 0.0, 0.001, 50.0, "right_HandFingerOneKnuckleOneJoint", 1.0, 0.0);
-    gs.addJoint("right_HandFingerOneKnuckleThreeJoint", 200.0, 15.0, 0.0, 0.001, 50.0, "right_HandFingerOneKnuckleTwoJoint", 0.333333, 0.0);
-    gs.addJoint("right_HandFingerTwoKnuckleThreeJoint", 200.0, 15.0, 0.0, 0.001, 50.0, "right_HandFingerTwoKnuckleTwoJoint", 0.333333, 0.0);
-    gs.addJoint("right_HandFingerThreeKnuckleThreeJoint", 200.0, 15.0, 0.0, 0.001, 50.0, "right_HandFingerThreeKnuckleTwoJoint", 0.333333, 0.0);
+    gs.addJointMimic("right_HandFingerTwoKnuckleOneJoint", 200.0, 15.0, 0.0, 0.001, 5.0, true, "right_HandFingerOneKnuckleOneJoint", 1.0, 0.0);
+    gs.addJointMimic("right_HandFingerOneKnuckleThreeJoint", 200.0, 15.0, 0.0, 0.001, 5.0, false, "right_HandFingerOneKnuckleTwoJoint", 0.333333, 0.0);
+    gs.addJointMimic("right_HandFingerTwoKnuckleThreeJoint", 200.0, 15.0, 0.0, 0.001, 5.0, false, "right_HandFingerTwoKnuckleTwoJoint", 0.333333, 0.0);
+    gs.addJointMimic("right_HandFingerThreeKnuckleThreeJoint", 200.0, 15.0, 0.0, 0.001, 5.0, false, "right_HandFingerThreeKnuckleTwoJoint", 0.333333, 0.0);
 
     gs.setGoalPosition("right_HandFingerOneKnuckleOneJoint", 0.6);
     gs.setGoalPosition("right_HandFingerOneKnuckleTwoJoint", 1.4);
@@ -319,7 +423,15 @@ int main(int argc, char** argv) {
             int qidx = j->getIndexInSkeleton(0);
             u(qidx) = gs.getControl(it->first);
             dq(qidx) = j->getVelocity(0);
-            j->setPositionLowerLimit(0, std::max(j->getPositionLowerLimit(0), it->second-0.01));
+            if (!gs.isBackdrivable(it->first)) {
+                j->setPositionLowerLimit(0, std::max(j->getPositionLowerLimit(0), it->second-0.01));
+            }
+
+            if (gs.isStopped(it->first)) {
+                j->setPositionLowerLimit(0, std::max(j->getPositionLowerLimit(0), it->second-0.01));
+                j->setPositionUpperLimit(0, std::min(j->getPositionUpperLimit(0), it->second+0.01));
+                std::cout << it->first << " " << "stopped" << std::endl;
+            }
 //            std::cout << it->first << " " << j->getActuatorType() << std::endl;
         }
 
@@ -331,6 +443,8 @@ int main(int argc, char** argv) {
         Eigen::VectorXd forces(joint_q_map.size());
         forces = M * (u - dq) + Cg;
         bh->setForces(forces);
+
+        std::cout << u.transpose() << std::endl;
 
         for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
             dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
@@ -354,7 +468,7 @@ int main(int argc, char** argv) {
         markers_pub.publish();
 
         ros::spinOnce();
-        loop_rate.sleep();
+//        loop_rate.sleep();
     }
 
     return 0;
