@@ -73,9 +73,6 @@ void publishTransform(tf::TransformBroadcaster &br, const KDL::Frame &T_B_F, con
 }
 
 class GripperState {
-//    class Puck {
-//    public:
-//    };
 
     class Joint {
     public:
@@ -145,7 +142,10 @@ public:
         j.backdrivable_ = backdrivable;
         j.breakable_ = false;
         j.stopped_ = false;
-        j.q_hist_.resize(10, 0.0);
+        j.q_hist_.resize(100, 0.0);
+        for (int hidx = 0; hidx < j.q_hist_.size(); hidx++) {
+            j.q_hist_[hidx] = hidx;
+        }
         j.q_hist_[0] = 100.0;
         j.q_hist_idx_ = 1;
         joint_mimic_map_.insert( std::make_pair(joint_name, j) );
@@ -230,19 +230,26 @@ public:
             }
             j.q_hist_[j.q_hist_idx_] = q;
             j.q_hist_idx_ = (j.q_hist_idx_ + 1) % j.q_hist_.size();
-
+//*
             double mean = 0.0;
+            bool overload = true;
             for (int hidx = 0; hidx < j.q_hist_.size(); hidx++) {
                 mean += j.q_hist_[hidx];
+                if (!j.u_hist_[hidx]) {
+                    overload = false;
+                }
             }
-            mean /= j.q_hist_.size();
-            double variance = 0.0;
-            for (int hidx = 0; hidx < j.q_hist_.size(); hidx++) {
-                variance += (mean - j.q_hist_[hidx]) * (mean - j.q_hist_[hidx]);
+            if (overload) {
+                mean /= j.q_hist_.size();
+                double variance = 0.0;
+                for (int hidx = 0; hidx < j.q_hist_.size(); hidx++) {
+                    variance += (mean - j.q_hist_[hidx]) * (mean - j.q_hist_[hidx]);
+                }
+                if (std::sqrt(variance) < 0.001) {
+                    j.stopped_ = true;
+                }
             }
-            if (std::sqrt(variance) < 0.001) {
-                j.stopped_ = true;
-            }
+//*/
         }
 
         // update mimic joints
@@ -278,21 +285,28 @@ public:
             }
             j.q_hist_[j.q_hist_idx_] = q;
             j.q_hist_idx_ = (j.q_hist_idx_ + 1) % j.q_hist_.size();
-
+//*
             if (j2.stopped_) {
                 double mean = 0.0;
+                bool overload = true;
                 for (int hidx = 0; hidx < j.q_hist_.size(); hidx++) {
                     mean += j.q_hist_[hidx];
+                    if (!j.u_hist_[hidx]) {
+                        overload = false;
+                    }
                 }
-                mean /= j.q_hist_.size();
-                double variance = 0.0;
-                for (int hidx = 0; hidx < j.q_hist_.size(); hidx++) {
-                    variance += (mean - j.q_hist_[hidx]) * (mean - j.q_hist_[hidx]);
-                }
-                if (std::sqrt(variance) < 0.001) {
-                    j.stopped_ = true;
+                if (overload) {
+                    mean /= j.q_hist_.size();
+                    double variance = 0.0;
+                    for (int hidx = 0; hidx < j.q_hist_.size(); hidx++) {
+                        variance += (mean - j.q_hist_[hidx]) * (mean - j.q_hist_[hidx]);
+                    }
+                    if (std::sqrt(variance) < 0.001) {
+                        j.stopped_ = true;
+                    }
                 }
             }
+//*/
         }
         return true;
     }
@@ -314,12 +328,31 @@ public:
         }
         return 0.0;
     }
+
+    Eigen::VectorXd getControls() const {
+        Eigen::VectorXd u(joint_map_.size() + joint_mimic_map_.size());
+        int q_idx = 0;
+
+        // update actuated joints
+        for (std::map<std::string, Joint >::const_iterator it = joint_map_.begin(); it != joint_map_.end(); it++, q_idx++) {
+            const Joint &j = it->second;
+            u(q_idx) = j.u_;
+        }
+
+        // update mimic joints
+        for (std::map<std::string, JointMimic >::const_iterator it = joint_mimic_map_.begin(); it != joint_mimic_map_.end(); it++, q_idx++) {
+            const JointMimic &j = it->second;
+            u(q_idx) = j.u_;
+        }
+
+        return u;
+    }
 };
 
 int main(int argc, char** argv) {
     const double PI(3.141592653589793);
 
-    ros::init(argc, argv, "ode_test");
+    ros::init(argc, argv, "dart_test");
 
     ros::NodeHandle nh_;
         std::string robot_description_str;
@@ -342,7 +375,13 @@ int main(int argc, char** argv) {
 
     // Position its base in a reasonable way
     Eigen::Isometry3d tf = Eigen::Isometry3d::Identity();
-    tf.translation() = Eigen::Vector3d(0.0, 0.0, 0.3);
+    KDL::Frame T_W_E( KDL::Rotation::RotX(170.0/180.0*PI), KDL::Vector(0.0, 0.0, 0.22) );
+
+    double qx, qy, qz, qw;
+    T_W_E.M.GetQuaternion(qx, qy, qz, qw);
+    tf.fromPositionOrientationScale(Eigen::Vector3d(T_W_E.p.x(), T_W_E.p.y(), T_W_E.p.z()), Eigen::Quaterniond(qw, qx, qy, qz), Eigen::Vector3d(1.0, 1.0, 1.0));
+//    tf.fromPositionOrientationScale(Eigen::Vector3d(0.0, 0.0, 0.3), Eigen::Quaterniond(1,0,0,0), Eigen::Vector3d(1.0, 1.0, 1.0));
+//    tf.translation() = Eigen::Vector3d(0.0, 0.0, 0.3);
     bh->getJoint(0)->setTransformFromParentBodyNode(tf);
 
     // Create a Skeleton with the name "domino"
@@ -367,21 +406,47 @@ int main(int argc, char** argv) {
     inertia.setMoment(box->computeInertia(0.1));
     body->setInertia(inertia);
 
-    domino->getDof("Joint_pos_z")->setPosition(0.45);
+    domino->getDof("Joint_pos_z")->setPosition(0.07);
+
+
+
+    // ground plane
+    // Create a Skeleton
+    dart::dynamics::SkeletonPtr plane = dart::dynamics::Skeleton::create("plane");
+
+    // Create a body for the plane
+    dart::dynamics::BodyNodePtr bodyPl =
+      plane->createJointAndBodyNodePair<dart::dynamics::WeldJoint>(NULL).second;
+    bodyPl->setName("plane");
+
+    // Create a shape for the domino
+    std::shared_ptr<dart::dynamics::BoxShape> pl(
+        new dart::dynamics::BoxShape(Eigen::Vector3d( 1.0,
+                                                      1.0,
+                                                      0.01)));
+    bodyPl->addVisualizationShape(pl);
+    bodyPl->addCollisionShape(pl);
+
+    // Set up inertia for the domino
+    dart::dynamics::Inertia inertia2;
+    inertia2.setMass(0.1);
+    inertia2.setMoment(pl->computeInertia(0.1));
+    bodyPl->setInertia(inertia2);
 
     dart::simulation::World* world = new dart::simulation::World();
 
 //    std::cout << "world time step: " << world->getTimeStep() << std::endl;
     world->addSkeleton(bh);
     world->addSkeleton(domino);
+    world->addSkeleton(plane);
 
-    Eigen::Vector3d grav(0,0,0);
+    Eigen::Vector3d grav(0,0,-1);
     world->setGravity(grav);
 //    std::cout << "world->getNumSimpleFrames: " << world->getNumSimpleFrames() << std::endl;
 
     GripperState gs;
 //    gs.addJoint(const std::string &joint_name, double Kc, double KcTi, double Td, double Ts, double u_max_, const std::string &mimic_joint=std::string(), double mimic_factor=0.0, double mimic_offset=0.0);
-    gs.addJoint("right_HandFingerOneKnuckleOneJoint", 100.0, 15.0, 0.0, 0.001, 5.0, true, false);
+/*    gs.addJoint("right_HandFingerOneKnuckleOneJoint", 100.0, 15.0, 0.0, 0.001, 5.0, true, false);
     gs.addJoint("right_HandFingerOneKnuckleTwoJoint", 100.0, 15.0, 0.0, 0.001, 5.0, false, true);
     gs.addJoint("right_HandFingerTwoKnuckleTwoJoint", 100.0, 15.0, 0.0, 0.001, 5.0, false, true);
     gs.addJoint("right_HandFingerThreeKnuckleTwoJoint", 100.0, 15.0, 0.0, 0.001, 5.0, false, true);
@@ -390,6 +455,19 @@ int main(int argc, char** argv) {
     gs.addJointMimic("right_HandFingerOneKnuckleThreeJoint", 200.0, 15.0, 0.0, 0.001, 5.0, false, "right_HandFingerOneKnuckleTwoJoint", 0.333333, 0.0);
     gs.addJointMimic("right_HandFingerTwoKnuckleThreeJoint", 200.0, 15.0, 0.0, 0.001, 5.0, false, "right_HandFingerTwoKnuckleTwoJoint", 0.333333, 0.0);
     gs.addJointMimic("right_HandFingerThreeKnuckleThreeJoint", 200.0, 15.0, 0.0, 0.001, 5.0, false, "right_HandFingerThreeKnuckleTwoJoint", 0.333333, 0.0);
+*/
+
+    double Kc = 400.0;
+    double KcDivTi = Kc / 1.0;
+    gs.addJoint("right_HandFingerOneKnuckleOneJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, true, false);
+    gs.addJoint("right_HandFingerOneKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, false, true);
+    gs.addJoint("right_HandFingerTwoKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, false, true);
+    gs.addJoint("right_HandFingerThreeKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, false, true);
+
+    gs.addJointMimic("right_HandFingerTwoKnuckleOneJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, true, "right_HandFingerOneKnuckleOneJoint", 1.0, 0.0);
+    gs.addJointMimic("right_HandFingerOneKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerOneKnuckleTwoJoint", 0.333333, 0.0);
+    gs.addJointMimic("right_HandFingerTwoKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerTwoKnuckleTwoJoint", 0.333333, 0.0);
+    gs.addJointMimic("right_HandFingerThreeKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerThreeKnuckleTwoJoint", 0.333333, 0.0);
 
     gs.setGoalPosition("right_HandFingerOneKnuckleOneJoint", 0.6);
     gs.setGoalPosition("right_HandFingerOneKnuckleTwoJoint", 1.4);
@@ -441,7 +519,7 @@ int main(int argc, char** argv) {
         // Compute the desired joint forces
         const Eigen::MatrixXd& M = bh->getMassMatrix();
         Eigen::VectorXd forces(joint_q_map.size());
-        forces = M * (u - dq) + Cg;
+        forces = 0.02*(u-dq) + Cg;//M * (u - dq) + Cg;
         bh->setForces(forces);
 
         std::cout << u.transpose() << std::endl;
@@ -468,7 +546,7 @@ int main(int argc, char** argv) {
         markers_pub.publish();
 
         ros::spinOnce();
-//        loop_rate.sleep();
+        loop_rate.sleep();
     }
 
     return 0;
