@@ -60,6 +60,12 @@ void EigenTfToKDL(const Eigen::Isometry3d &tf, KDL::Frame &kdlT) {
     kdlT = KDL::Frame( KDL::Rotation(tf(0,0),tf(0,1),tf(0,2), tf(1,0), tf(1,1), tf(1,2), tf(2,0), tf(2,1), tf(2,2)), KDL::Vector(tf(0,3), tf(1,3), tf(2,3)) );
 }
 
+void KDLToEigenTf(const KDL::Frame &kdlT, Eigen::Isometry3d &tf) {
+    double qx, qy, qz, qw;
+    kdlT.M.GetQuaternion(qx, qy, qz, qw);
+    tf.fromPositionOrientationScale(Eigen::Vector3d(kdlT.p.x(), kdlT.p.y(), kdlT.p.z()), Eigen::Quaterniond(qw, qx, qy, qz), Eigen::Vector3d(1.0, 1.0, 1.0));
+}
+
 void publishJointState(ros::Publisher &joint_state_pub, const Eigen::VectorXd &q, const std::vector<std::string > &joint_names) {
         sensor_msgs::JointState js;
         js.header.stamp = ros::Time::now();
@@ -378,24 +384,27 @@ int main(int argc, char** argv) {
 
 
     std::string package_path_barrett = ros::package::getPath("barrett_hand_defs");
+    std::string package_path_sim = ros::package::getPath("barrett_hand_sim_dart");
 
     // Load the Skeleton from a file
     dart::utils::DartLoader loader;
     loader.addPackageDirectory("barrett_hand_defs", package_path_barrett);
+    loader.addPackageDirectory("barrett_hand_sim_dart", package_path_sim);
     dart::dynamics::SkeletonPtr bh( loader.parseSkeleton(package_path_barrett + "/robots/barrett_hand.urdf") );
     bh->setName("BarrettHand");
 
     // Position its base in a reasonable way
-    Eigen::Isometry3d tf = Eigen::Isometry3d::Identity();
-    KDL::Frame T_W_E( KDL::Rotation::RotX(180.0/180.0*PI), KDL::Vector(0.0, 0.0, 0.22) );
-
-    double qx, qy, qz, qw;
-    T_W_E.M.GetQuaternion(qx, qy, qz, qw);
-    tf.fromPositionOrientationScale(Eigen::Vector3d(T_W_E.p.x(), T_W_E.p.y(), T_W_E.p.z()), Eigen::Quaterniond(qw, qx, qy, qz), Eigen::Vector3d(1.0, 1.0, 1.0));
-//    tf.fromPositionOrientationScale(Eigen::Vector3d(0.0, 0.0, 0.3), Eigen::Quaterniond(1,0,0,0), Eigen::Vector3d(1.0, 1.0, 1.0));
-//    tf.translation() = Eigen::Vector3d(0.0, 0.0, 0.3);
+    Eigen::Isometry3d tf;
+    KDLToEigenTf(KDL::Frame( KDL::Rotation::RotX(180.0/180.0*PI), KDL::Vector(0.0, 0.0, 0.22) ), tf);
     bh->getJoint(0)->setTransformFromParentBodyNode(tf);
 
+    dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(package_path_sim + "/objects/cube.urdf") );
+    KDLToEigenTf(KDL::Frame( KDL::Vector(0.0, 0.0, 0.07) ), tf);
+    domino->getJoint(0)->setTransformFromParentBodyNode(tf);
+
+//    std::cout << domino->getNumJoints() << " " << domino->getNumDofs() << std::endl;
+//    return 0;
+/*
     // Create a Skeleton with the name "domino"
     dart::dynamics::SkeletonPtr domino = dart::dynamics::Skeleton::create("domino");
 
@@ -419,9 +428,11 @@ int main(int argc, char** argv) {
     body->setInertia(inertia);
 
     domino->getDof("Joint_pos_z")->setPosition(0.07);
+*/
+//    domino->getDof("Joint_pos_z")->setPosition(0.07);
 
-
-
+    dart::dynamics::SkeletonPtr plane( loader.parseSkeleton(package_path_sim + "/objects/plane.urdf") );
+/*
     // ground plane
     // Create a Skeleton
     dart::dynamics::SkeletonPtr plane = dart::dynamics::Skeleton::create("plane");
@@ -431,7 +442,7 @@ int main(int argc, char** argv) {
       plane->createJointAndBodyNodePair<dart::dynamics::WeldJoint>(NULL).second;
     bodyPl->setName("plane");
 
-    // Create a shape for the domino
+    // Create a shape for the plane
     std::shared_ptr<dart::dynamics::BoxShape> pl(
         new dart::dynamics::BoxShape(Eigen::Vector3d( 1.0,
                                                       1.0,
@@ -444,6 +455,7 @@ int main(int argc, char** argv) {
     inertia2.setMass(0.1);
     inertia2.setMoment(pl->computeInertia(0.1));
     bodyPl->setInertia(inertia2);
+*/
 
     dart::simulation::World* world = new dart::simulation::World();
 
@@ -499,7 +511,6 @@ int main(int argc, char** argv) {
 
     while (ros::ok()) {
         world->step(false);
-//        dart::dynamics::SkeletonPtr bh = world->getSkeleton("BarrettHand");
 
         for (std::map<std::string, double>::iterator it = joint_q_map.begin(); it != joint_q_map.end(); it++) {
             dart::dynamics::Joint *j = bh->getJoint(it->first);
@@ -524,7 +535,6 @@ int main(int argc, char** argv) {
                 j->setPositionUpperLimit(0, std::min(j->getPositionUpperLimit(0), it->second+0.01));
                 std::cout << it->first << " " << "stopped" << std::endl;
             }
-//            std::cout << it->first << " " << j->getActuatorType() << std::endl;
         }
 
         // Compute the joint forces needed to compensate for Coriolis forces and
@@ -547,7 +557,35 @@ int main(int argc, char** argv) {
             publishTransform(br, T_W_L, b->getName(), "world");
         }
 
-        for (int bidx = 0; bidx < domino->getNumBodyNodes(); bidx++) {
+        int m_id = 0;
+        for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
+            dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
+            if (sk->getName() == bh->getName()) {
+                continue;
+            }
+            std::cout << "skeleton: " << sk->getName() << std::endl;
+
+            for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
+                dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
+                const Eigen::Isometry3d &tf = b->getTransform();
+                KDL::Frame T_W_L;
+                EigenTfToKDL(tf, T_W_L);
+                publishTransform(br, T_W_L, b->getName(), "world");
+                for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
+                    dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
+                    if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
+                        std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
+
+//                        std::cout << "publish " << msh->getMeshPath() << std::endl;
+                        m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
+//                        m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, "package://barrett_hand_sim_dart/meshes/HandPalmLink.dae", b->getName());
+    //                    markers_pub.addSinglePointMarkerCube(100, KDL::Vector(), 1, 0, 0, 1, 0.07, 0.07, 0.07, b->getName());
+                    }
+                }
+            }
+        }
+
+/*        for (int bidx = 0; bidx < domino->getNumBodyNodes(); bidx++) {
             dart::dynamics::BodyNode *b = domino->getBodyNode(bidx);
             const Eigen::Isometry3d &tf = b->getTransform();
             KDL::Frame T_W_L;
@@ -555,19 +593,20 @@ int main(int argc, char** argv) {
 //            std::cout << b->getName() << std::endl;
             publishTransform(br, T_W_L, b->getName(), "world");
         }
-
-        markers_pub.addSinglePointMarkerCube(100, KDL::Vector(), 1, 0, 0, 1, 0.07, 0.07, 0.07, "cube5");
+*/
+//        markers_pub.addSinglePointMarkerCube(100, KDL::Vector(), 1, 0, 0, 1, 0.07, 0.07, 0.07, "cube5");
         markers_pub.publish();
 
         ros::spinOnce();
         loop_rate.sleep();
 
-        counter++;
+//        counter++;
         if (counter > 100) {
             break;
         }
     }
 
+    return 0;
     int m_id = 101;
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
         dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
@@ -586,14 +625,10 @@ int main(int argc, char** argv) {
                 const aiScene *sc = msh->getMesh();
                 for (int midx = 0; midx < sc->mNumMeshes; midx++) {
                     std::cout << "v: " << sc->mMeshes[midx]->mNumVertices << "   f: " << sc->mMeshes[midx]->mNumFaces << std::endl;
-                    std::cout << "[" << sc->mMeshes[midx]->mFaces[0].mIndices[0] << " " << sc->mMeshes[midx]->mFaces[0].mIndices[1] << " " << sc->mMeshes[midx]->mFaces[0].mIndices[2] << "]" << std::endl;
-                    std::cout << "[" << sc->mMeshes[midx]->mFaces[1].mIndices[0] << " " << sc->mMeshes[midx]->mFaces[1].mIndices[1] << " " << sc->mMeshes[midx]->mFaces[1].mIndices[2] << "]" << std::endl;
-                    std::cout << "[" << sc->mMeshes[midx]->mFaces[2].mIndices[0] << " " << sc->mMeshes[midx]->mFaces[2].mIndices[1] << " " << sc->mMeshes[midx]->mFaces[2].mIndices[2] << "]" << std::endl;
                     pcl::PointCloud<pcl::PointNormal>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointNormal>);
                     uniform_sampling(sc->mMeshes[midx], 100000, *cloud_1);
                     // Voxelgrid
                     pcl::VoxelGrid<pcl::PointNormal> grid_;
-
                     pcl::PointCloud<pcl::PointNormal>::Ptr res(new pcl::PointCloud<pcl::PointNormal>);
                     grid_.setDownsampleAllData(true);
                     grid_.setSaveLeafLayout(true);
@@ -633,70 +668,6 @@ int main(int argc, char** argv) {
 //                        m_id = markers_pub.addVectorMarker(m_id, v1, v2, f, 1, f, 1, 0.0005, b->getName());
                         m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, b->getName());
                     }
-/*
-
-                    pcl::PCA<pcl::PointNormal > pca;
-                    pca.setInputCloud(res);
-
-                    Eigen::MatrixXi relative_coordinates(3, 3 * 3 * 3);
-                    int rel_pt_idx = 0;
-                    for (int ix = -1; ix <= 1; ix++) {
-                        for (int iy = -1; iy <= 1; iy++) {
-                            for (int iz = -1; iz <= 1; iz++) {
-                                relative_coordinates(0, rel_pt_idx) = ix;
-                                relative_coordinates(1, rel_pt_idx) = iy;
-                                relative_coordinates(2, rel_pt_idx) = iz;
-                                rel_pt_idx++;
-                            }
-                        }
-                    }
-                    for (int pidx = 0; pidx < res->points.size(); pidx++) {
-                        if (rand()%1000 == 0) {
-                            pcl::IndicesPtr neighbours( new std::vector<int> );
-                            *neighbours = grid_.getNeighborCentroidIndices(res->points[pidx], relative_coordinates);
-                            for (int nidx = 0; nidx < neighbours->size(); nidx++) {
-                                int idx = (*neighbours)[nidx];
-                                m_id = markers_pub.addSinglePointMarkerCube(m_id, T_L_S * KDL::Vector(res->points[idx].x, res->points[idx].y, res->points[idx].z), 0, 0, 1, 1, 0.003, 0.003, 0.003, b->getName());
-                            }
-//                        pcl::PointIndices::Ptr pi( new pcl::PointIndices );
-//                        pi->indices = neighbours;
-//pcl::PrincipalCurvaturesEstimation< PointInT, PointNT, PointOutT >
-                        pca.setIndices(neighbours);
-                        Eigen::Vector3f curv = pca.getEigenValues();
-                        std::cout << curv.transpose() << std::endl;
-                        KDL::Vector v1 = T_L_S * KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z);
-                        KDL::Vector v2 = T_L_S * (KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) + 0.01 * KDL::Vector(res->points[pidx].normal[0], res->points[pidx].normal[1], res->points[pidx].normal[2]));
-                        m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 1, 0, 1, 0.0005, b->getName());
-                        }
-                    }
-*/
-
-
-/*
-                    // Create the normal estimation class, and pass the input dataset to it
-                    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
-                    ne.setInputCloud (res);
-
-                    // Create an empty kdtree representation, and pass it to the normal estimation object.
-                    // Its content will be filled inside the object, based on the given input dataset (as no other search surface is given).
-                    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
-                    ne.setSearchMethod (tree);
-
-                    // Output datasets
-                    pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
-
-                    // Use all neighbors in a sphere of radius 3cm
-                    ne.setRadiusSearch (0.004);
-
-                    // Compute the features
-                    ne.compute (*cloud_normals);
-
-                    for (int pidx = 0; pidx < cloud_normals->points.size(); pidx++) {
-                        KDL::Vector v1 = T_L_S * KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z);
-                        KDL::Vector v2 = T_L_S * (KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) - 0.01 * KDL::Vector(cloud_normals->points[pidx].normal[0], cloud_normals->points[pidx].normal[1], cloud_normals->points[pidx].normal[2]));
-                        m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 1, 0, 1, 0.0005, b->getName());
-                    }
-*/
 
 /*
                     for (int vidx = 0; vidx < sc->mMeshes[midx]->mNumVertices; vidx++) {
@@ -708,11 +679,8 @@ int main(int argc, char** argv) {
 */
                 }
 
-//            std::cout << sh->getShapeType() << std::endl;
-                std::cout << "mesh" << std::endl;
             }
         }
-//        publishTransform(br, T_W_L, b->getName(), "world");
     }
 
     markers_pub.publish();
