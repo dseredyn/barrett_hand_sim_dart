@@ -197,6 +197,8 @@ int main(int argc, char** argv) {
     // calculate point clouds for all links and for the grasped object
     std::map<std::string, pcl::PointCloud<pcl::PointNormal>::Ptr > point_clouds_map;
     std::map<std::string, pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr > point_pc_clouds_map;
+    std::map<std::string, KDL::Frame > frames_map;
+    std::map<std::string, std::vector<KDL::Frame > > features_map;
     for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
         dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
 
@@ -228,6 +230,7 @@ int main(int argc, char** argv) {
                         grid_.setLeafSize(0.003, 0.003, 0.003);
                         grid_.filter (*res);
                         point_clouds_map[b->getName()] = res;
+                        frames_map[b->getName()] = T_W_L * T_L_S;
 
                         std::cout << "res->points.size(): " << res->points.size() << std::endl;
 
@@ -250,49 +253,106 @@ int main(int argc, char** argv) {
                         pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures (new pcl::PointCloud<pcl::PrincipalCurvatures> ());
                         principalCurvaturesEstimation.compute (*principalCurvatures);
                         point_pc_clouds_map[b->getName()] = principalCurvatures;
-                    }
 
+                        features_map[b->getName()].resize( res->points.size() );
+
+                        for (int pidx = 0; pidx < res->points.size(); pidx++) {
+                            KDL::Vector nx, ny, nz(res->points[pidx].normal[0], res->points[pidx].normal[1], res->points[pidx].normal[2]);
+                            if ( std::fabs( principalCurvatures->points[pidx].pc1 - principalCurvatures->points[pidx].pc2 ) > 0.001) {
+                                nx = KDL::Vector(principalCurvatures->points[pidx].principal_curvature[0], principalCurvatures->points[pidx].principal_curvature[1], principalCurvatures->points[pidx].principal_curvature[2]);
+                            }
+                            else {
+                                if (std::fabs(nz.z()) < 0.7) {
+                                    nx = KDL::Vector(0, 0, 1);
+                                }
+                                else {
+                                    nx = KDL::Vector(1, 0, 0);
+                                }
+                            }
+                            ny = nz * nx;
+                            nx = ny * nz;
+                            nx.Normalize();
+                            ny.Normalize();
+                            nz.Normalize();
+                            features_map[b->getName()][pidx] = KDL::Frame( KDL::Rotation(nx, ny, nz), KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) );
+                        }
+                    }
                 }
             }
         }
     }
 
-    // visualisation of the point clouds and the curvatures
     int m_id = 101;
+/*
+    // visualisation of the point clouds and the curvatures
     for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
         dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
+        if (sk->getName() == bh->getName()) {
+            continue;
+        }
         for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
-            dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
-            const Eigen::Isometry3d &tf = b->getTransform();
-            KDL::Frame T_W_L;
-            EigenTfToKDL(tf, T_W_L);
-            std::cout << b->getName() << "   " << b->getNumCollisionShapes() << std::endl;
-            for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
-                dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
-                if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
-                    std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-                    const Eigen::Isometry3d &tf = sh->getLocalTransform();
-                    KDL::Frame T_L_S;
-                    EigenTfToKDL(tf, T_L_S);
+            const std::string &link_name = sk->getBodyNode(bidx)->getName();
+            if (point_clouds_map.find( link_name ) == point_clouds_map.end()) {
+                continue;
+            }
+            pcl::PointCloud<pcl::PointNormal>::Ptr res = point_clouds_map[link_name];
+            pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures = point_pc_clouds_map[link_name];
+            KDL::Frame T_W_S = frames_map[link_name];
 
-                    pcl::PointCloud<pcl::PointNormal>::Ptr res = point_clouds_map[b->getName()];
-                    pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures = point_pc_clouds_map[b->getName()];
-
-                    for (int pidx = 0; pidx < res->points.size(); pidx++) {
-                        KDL::Vector v1 = T_L_S * KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z);
-                        KDL::Vector v2 = T_L_S * (KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) + 0.01 * KDL::Vector(res->points[pidx].normal[0], res->points[pidx].normal[1], res->points[pidx].normal[2]));
-                        double f = principalCurvatures->points[pidx].pc1 * 4.0;
-//                        m_id = markers_pub.addVectorMarker(m_id, v1, v2, f, 1, f, 1, 0.0005, b->getName());
-                        m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, b->getName());
-                    }
-                }
+            for (int pidx = 0; pidx < res->points.size(); pidx++) {
+                KDL::Vector v1 = T_W_S * KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z);
+                KDL::Vector v2 = T_W_S * features_map[link_name][pidx] * KDL::Vector(0, 0, 0.01);
+                KDL::Vector v3 = T_W_S * features_map[link_name][pidx] * KDL::Vector(0.01, 0, 0);
+//                KDL::Vector v2 = T_W_S * (KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) + 0.01 * KDL::Vector(res->points[pidx].normal[0], res->points[pidx].normal[1], res->points[pidx].normal[2]));
+//                KDL::Vector v3 = T_W_S * (KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) + 0.01 * KDL::Vector(principalCurvatures->points[pidx].principal_curvature[0], principalCurvatures->points[pidx].principal_curvature[1], principalCurvatures->points[pidx].principal_curvature[2]));
+                double f = principalCurvatures->points[pidx].pc1 * 4.0;
+                m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, "world");
+                m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, "world");
+                m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, "world");
             }
         }
     }
+    markers_pub.publish();
 
+    for (int i = 0; i < 100; i++) {
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
 
+    return 0;
+//*/
 
+    const std::string &ob_name = domino->getRootBodyNode()->getName();
+    pcl::PointCloud<pcl::PointNormal>::Ptr ob_res = point_clouds_map[ob_name];
+    pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr ob_principalCurvatures = point_pc_clouds_map[ob_name];
+    T_W_O = frames_map[ob_name];
 
+    std::map<std::string, std::list<std::pair<int, double> > > link_pt_map;
+
+    double dist_range = 0.01;
+    for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
+        const std::string &link_name = bh->getBodyNode(bidx)->getName();
+        if (point_clouds_map.find( link_name ) == point_clouds_map.end()) {
+            continue;
+        }
+        pcl::PointCloud<pcl::PointNormal>::Ptr res = point_clouds_map[link_name];
+        pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures = point_pc_clouds_map[link_name];
+        KDL::Frame T_W_S = frames_map[link_name];
+
+        for (int poidx = 0; poidx < ob_res->points.size(); poidx++) {
+            double min_dist = dist_range + 1.0;
+            for (int pidx = 0; pidx < res->points.size(); pidx++) {
+                KDL::Vector p1(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z), p2(ob_res->points[poidx].x, ob_res->points[poidx].y, ob_res->points[poidx].z);
+                double dist = (T_W_S * p1 - T_W_O * p2).Norm();
+                if (dist < min_dist) {
+                    min_dist = dist;
+                }
+            }
+            if (min_dist < dist_range) {
+                link_pt_map[link_name].push_back( std::make_pair(poidx, min_dist) );
+            }
+        }
+    }
 
     markers_pub.publish();
 
