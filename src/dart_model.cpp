@@ -83,11 +83,16 @@ public:
     double dist;
 };
 
+class CollisionModel {
+public:
+    std::map<std::string, std::vector<Feature > > link_features_map;
+
+};
+
 int main(int argc, char** argv) {
     const double PI(3.141592653589793);
 
-
-    // write grasp state to the output
+    // read grasp state from the input
     double px, py, pz, qx, qy, qz, qw;
     std::cin >> px >> py >> pz >> qx >> qy >> qz >> qw;
 
@@ -336,7 +341,7 @@ int main(int argc, char** argv) {
     T_W_O = frames_map[ob_name];
 
     std::map<std::string, std::list<std::pair<int, double> > > link_pt_map;
-    std::map<std::string, std::vector<Feature > > link_features_map;
+    CollisionModel cm;
 
     double dist_range = 0.01;
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
@@ -362,33 +367,34 @@ int main(int argc, char** argv) {
             }
         }
         if ( link_pt_map[link_name].size() > 0 ) {
-            link_features_map[link_name].resize( link_pt_map[link_name].size() );
+            cm.link_features_map[link_name].resize( link_pt_map[link_name].size() );
             int fidx = 0;
             for (std::list<std::pair<int, double> >::const_iterator it = link_pt_map[link_name].begin(); it != link_pt_map[link_name].end(); it++, fidx++) {
                 int poidx = it->first;
-                link_features_map[link_name][fidx].pc1 = ob_principalCurvatures->points[poidx].pc1;
-                link_features_map[link_name][fidx].pc2 = ob_principalCurvatures->points[poidx].pc2;
+                cm.link_features_map[link_name][fidx].pc1 = ob_principalCurvatures->points[poidx].pc1;
+                cm.link_features_map[link_name][fidx].pc2 = ob_principalCurvatures->points[poidx].pc2;
                 KDL::Frame T_W_F = T_W_O * features_map[ob_name][poidx];
-                link_features_map[link_name][fidx].T_L_F = T_W_S.Inverse() * T_W_F;
-                link_features_map[link_name][fidx].dist = it->second;
+                cm.link_features_map[link_name][fidx].T_L_F = T_W_S.Inverse() * T_W_F;
+                cm.link_features_map[link_name][fidx].dist = it->second / dist_range;
             }
         }        
     }
 
+//*
     // visualise the features
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
         const std::string &link_name = bh->getBodyNode(bidx)->getName();
-        if (link_features_map.find( link_name ) == link_features_map.end()) {
+        if (cm.link_features_map.find( link_name ) == cm.link_features_map.end()) {
             continue;
         }
         KDL::Frame T_W_L = frames_map[link_name];
-        for (int fidx = 0; fidx < link_features_map[link_name].size(); fidx++) {
-            KDL::Frame T_W_F = T_W_L * link_features_map[link_name][fidx].T_L_F;
+        for (int fidx = 0; fidx < cm.link_features_map[link_name].size(); fidx++) {
+            KDL::Frame T_W_F = T_W_L * cm.link_features_map[link_name][fidx].T_L_F;
             KDL::Vector v1 = T_W_F * KDL::Vector();
             KDL::Vector v2 = T_W_F * KDL::Vector(0, 0, 0.01);
             KDL::Vector v3 = T_W_F * KDL::Vector(0.01, 0, 0);
-            double f = link_features_map[link_name][fidx].pc1 * 4.0;
-            //double f = link_features_map[link_name][fidx].dist / dist_range;
+            double f = cm.link_features_map[link_name][fidx].pc1 * 4.0;
+            //double f = cm.link_features_map[link_name][fidx].dist;
             m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, "world");
             m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, "world");
             m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, "world");
@@ -400,8 +406,11 @@ int main(int argc, char** argv) {
         ros::spinOnce();
         loop_rate.sleep();
     }
+//*/
+
+    // get a random point on the surface of the object
+    int rand_poidx = rand() % ob_res->points.size();
 
     return 0;
 }
-
 
