@@ -76,6 +76,13 @@ void publishTransform(tf::TransformBroadcaster &br, const KDL::Frame &T_B_F, con
         br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), base_frame_id, frame_id));
 }
 
+class Feature {
+public:
+    KDL::Frame T_L_F;
+    double pc1, pc2;
+    double dist;
+};
+
 int main(int argc, char** argv) {
     const double PI(3.141592653589793);
 
@@ -322,12 +329,14 @@ int main(int argc, char** argv) {
     return 0;
 //*/
 
+    // generate collision model
     const std::string &ob_name = domino->getRootBodyNode()->getName();
     pcl::PointCloud<pcl::PointNormal>::Ptr ob_res = point_clouds_map[ob_name];
     pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr ob_principalCurvatures = point_pc_clouds_map[ob_name];
     T_W_O = frames_map[ob_name];
 
     std::map<std::string, std::list<std::pair<int, double> > > link_pt_map;
+    std::map<std::string, std::vector<Feature > > link_features_map;
 
     double dist_range = 0.01;
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
@@ -352,8 +361,39 @@ int main(int argc, char** argv) {
                 link_pt_map[link_name].push_back( std::make_pair(poidx, min_dist) );
             }
         }
+        if ( link_pt_map[link_name].size() > 0 ) {
+            link_features_map[link_name].resize( link_pt_map[link_name].size() );
+            int fidx = 0;
+            for (std::list<std::pair<int, double> >::const_iterator it = link_pt_map[link_name].begin(); it != link_pt_map[link_name].end(); it++, fidx++) {
+                int poidx = it->first;
+                link_features_map[link_name][fidx].pc1 = ob_principalCurvatures->points[poidx].pc1;
+                link_features_map[link_name][fidx].pc2 = ob_principalCurvatures->points[poidx].pc2;
+                KDL::Frame T_W_F = T_W_O * features_map[ob_name][poidx];
+                link_features_map[link_name][fidx].T_L_F = T_W_S.Inverse() * T_W_F;
+                link_features_map[link_name][fidx].dist = it->second;
+            }
+        }        
     }
 
+    // visualise the features
+    for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
+        const std::string &link_name = bh->getBodyNode(bidx)->getName();
+        if (link_features_map.find( link_name ) == link_features_map.end()) {
+            continue;
+        }
+        KDL::Frame T_W_L = frames_map[link_name];
+        for (int fidx = 0; fidx < link_features_map[link_name].size(); fidx++) {
+            KDL::Frame T_W_F = T_W_L * link_features_map[link_name][fidx].T_L_F;
+            KDL::Vector v1 = T_W_F * KDL::Vector();
+            KDL::Vector v2 = T_W_F * KDL::Vector(0, 0, 0.01);
+            KDL::Vector v3 = T_W_F * KDL::Vector(0.01, 0, 0);
+            double f = link_features_map[link_name][fidx].pc1 * 4.0;
+            //double f = link_features_map[link_name][fidx].dist / dist_range;
+            m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, "world");
+            m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, "world");
+            m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, "world");
+        }
+    }
     markers_pub.publish();
 
     for (int i = 0; i < 100; i++) {
