@@ -154,13 +154,12 @@ int main(int argc, char** argv) {
     EigenTfToKDL(tf, T_W_E);
     KDL::Frame T_W_O = T_W_E * T_E_O;
 
-//    dart::dynamics::BodyNode *b = domino->getRootBodyNode();
     KDLToEigenTf(T_W_O, tf);
     domino->getJoint(0)->setTransformFromParentBodyNode(tf);
 
-    int counter = 0;
-
-    while (ros::ok()) {
+    // visualization
+    for (int i = 0; i < 100; i++) {
+//    while (ros::ok()) {
         for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
             dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
             const Eigen::Isometry3d &tf = b->getTransform();
@@ -191,14 +190,11 @@ int main(int argc, char** argv) {
                 }
             }
         }
-
         markers_pub.publish();
-
         ros::spinOnce();
         loop_rate.sleep();
     }
 
-    return 0;
     int m_id = 101;
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
         dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
