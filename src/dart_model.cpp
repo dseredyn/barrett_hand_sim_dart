@@ -157,9 +157,8 @@ int main(int argc, char** argv) {
     KDLToEigenTf(T_W_O, tf);
     domino->getJoint(0)->setTransformFromParentBodyNode(tf);
 
-    // visualization
+    // visualisation
     for (int i = 0; i < 100; i++) {
-//    while (ros::ok()) {
         for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
             dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
             const Eigen::Isometry3d &tf = b->getTransform();
@@ -195,59 +194,89 @@ int main(int argc, char** argv) {
         loop_rate.sleep();
     }
 
+    // calculate point clouds for all links and for the grasped object
+    std::map<std::string, pcl::PointCloud<pcl::PointNormal>::Ptr > point_clouds_map;
+    std::map<std::string, pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr > point_pc_clouds_map;
+    for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
+        dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
+
+        for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
+            dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
+            const Eigen::Isometry3d &tf = b->getTransform();
+            KDL::Frame T_W_L;
+            EigenTfToKDL(tf, T_W_L);
+            std::cout << b->getName() << "   " << b->getNumCollisionShapes() << std::endl;
+            for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
+                dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
+                if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
+                    std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
+                    const Eigen::Isometry3d &tf = sh->getLocalTransform();
+                    KDL::Frame T_L_S;
+                    EigenTfToKDL(tf, T_L_S);
+
+                    const aiScene *sc = msh->getMesh();
+                    for (int midx = 0; midx < sc->mNumMeshes; midx++) {
+                        std::cout << "v: " << sc->mMeshes[midx]->mNumVertices << "   f: " << sc->mMeshes[midx]->mNumFaces << std::endl;
+                        pcl::PointCloud<pcl::PointNormal>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointNormal>);
+                        uniform_sampling(sc->mMeshes[midx], 100000, *cloud_1);
+                        // Voxelgrid
+                        pcl::VoxelGrid<pcl::PointNormal> grid_;
+                        pcl::PointCloud<pcl::PointNormal>::Ptr res(new pcl::PointCloud<pcl::PointNormal>);
+                        grid_.setDownsampleAllData(true);
+                        grid_.setSaveLeafLayout(true);
+                        grid_.setInputCloud(cloud_1);
+                        grid_.setLeafSize(0.003, 0.003, 0.003);
+                        grid_.filter (*res);
+                        point_clouds_map[b->getName()] = res;
+
+                        std::cout << "res->points.size(): " << res->points.size() << std::endl;
+
+                        pcl::search::KdTree<pcl::PointNormal>::Ptr tree (new pcl::search::KdTree<pcl::PointNormal>);
+
+                        // Setup the principal curvatures computation
+                        pcl::PrincipalCurvaturesEstimation<pcl::PointNormal, pcl::PointNormal, pcl::PrincipalCurvatures> principalCurvaturesEstimation;
+
+                        // Provide the original point cloud (without normals)
+                        principalCurvaturesEstimation.setInputCloud (res);
+
+                        // Provide the point cloud with normals
+                        principalCurvaturesEstimation.setInputNormals(res);
+
+                        // Use the same KdTree from the normal estimation
+                        principalCurvaturesEstimation.setSearchMethod (tree);
+                        principalCurvaturesEstimation.setRadiusSearch(0.005);
+
+                        // Actually compute the principal curvatures
+                        pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures (new pcl::PointCloud<pcl::PrincipalCurvatures> ());
+                        principalCurvaturesEstimation.compute (*principalCurvatures);
+                        point_pc_clouds_map[b->getName()] = principalCurvatures;
+                    }
+
+                }
+            }
+        }
+    }
+
+    // visualisation of the point clouds and the curvatures
     int m_id = 101;
-    for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
-        dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
-        const Eigen::Isometry3d &tf = b->getTransform();
-        KDL::Frame T_W_L;
-        EigenTfToKDL(tf, T_W_L);
-        std::cout << b->getName() << "   " << b->getNumCollisionShapes() << std::endl;
-        for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
-            dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
-            if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
-                std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-                const Eigen::Isometry3d &tf = sh->getLocalTransform();
-                KDL::Frame T_L_S;
-                EigenTfToKDL(tf, T_L_S);
+    for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
+        dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
+        for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
+            dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
+            const Eigen::Isometry3d &tf = b->getTransform();
+            KDL::Frame T_W_L;
+            EigenTfToKDL(tf, T_W_L);
+            std::cout << b->getName() << "   " << b->getNumCollisionShapes() << std::endl;
+            for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
+                dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
+                if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
+                    std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
+                    const Eigen::Isometry3d &tf = sh->getLocalTransform();
+                    KDL::Frame T_L_S;
+                    EigenTfToKDL(tf, T_L_S);
 
-                const aiScene *sc = msh->getMesh();
-                for (int midx = 0; midx < sc->mNumMeshes; midx++) {
-                    std::cout << "v: " << sc->mMeshes[midx]->mNumVertices << "   f: " << sc->mMeshes[midx]->mNumFaces << std::endl;
-                    pcl::PointCloud<pcl::PointNormal>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointNormal>);
-                    uniform_sampling(sc->mMeshes[midx], 100000, *cloud_1);
-                    // Voxelgrid
-                    pcl::VoxelGrid<pcl::PointNormal> grid_;
-                    pcl::PointCloud<pcl::PointNormal>::Ptr res(new pcl::PointCloud<pcl::PointNormal>);
-                    grid_.setDownsampleAllData(true);
-                    grid_.setSaveLeafLayout(true);
-                    grid_.setInputCloud(cloud_1);
-                    grid_.setLeafSize(0.003, 0.003, 0.003);
-                    grid_.filter (*res);
-
-//                   for (pcl::PointCloud<pcl::PointNormal>::const_iterator it = res->begin(); it != res->end(); it++) {
-//                        m_id = markers_pub.addSinglePointMarkerCube(m_id, T_L_S * KDL::Vector(it->x, it->y, it->z), 0, 1, 0, 1, 0.001, 0.001, 0.001, b->getName());
-//                    }
-
-                    std::cout << "res->points.size(): " << res->points.size() << std::endl;
-
-                    pcl::search::KdTree<pcl::PointNormal>::Ptr tree (new pcl::search::KdTree<pcl::PointNormal>);
-
-                    // Setup the principal curvatures computation
-                    pcl::PrincipalCurvaturesEstimation<pcl::PointNormal, pcl::PointNormal, pcl::PrincipalCurvatures> principalCurvaturesEstimation;
-
-                    // Provide the original point cloud (without normals)
-                    principalCurvaturesEstimation.setInputCloud (res);
-
-                    // Provide the point cloud with normals
-                    principalCurvaturesEstimation.setInputNormals(res);
-
-                    // Use the same KdTree from the normal estimation
-                    principalCurvaturesEstimation.setSearchMethod (tree);
-                    principalCurvaturesEstimation.setRadiusSearch(0.005);
-
-                    // Actually compute the principal curvatures
-                    pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures (new pcl::PointCloud<pcl::PrincipalCurvatures> ());
-                    principalCurvaturesEstimation.compute (*principalCurvatures);
+                    pcl::PointCloud<pcl::PointNormal>::Ptr res = point_clouds_map[b->getName()];
+                    pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures = point_pc_clouds_map[b->getName()];
 
                     for (int pidx = 0; pidx < res->points.size(); pidx++) {
                         KDL::Vector v1 = T_L_S * KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z);
@@ -256,12 +285,14 @@ int main(int argc, char** argv) {
 //                        m_id = markers_pub.addVectorMarker(m_id, v1, v2, f, 1, f, 1, 0.0005, b->getName());
                         m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, b->getName());
                     }
-
                 }
-
             }
         }
     }
+
+
+
+
 
     markers_pub.publish();
 
