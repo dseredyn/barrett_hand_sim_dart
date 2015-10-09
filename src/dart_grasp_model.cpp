@@ -519,13 +519,15 @@ int main(int argc, char** argv) {
 
         gs.controlStep(joint_q_map);
 
-        Eigen::VectorXd u(joint_q_map.size());
-        Eigen::VectorXd dq(joint_q_map.size());
+        // Compute the joint forces needed to compensate for Coriolis forces and
+        // gravity
+        const Eigen::VectorXd& Cg = bh->getCoriolisAndGravityForces();
+
         for (std::map<std::string, double>::iterator it = joint_q_map.begin(); it != joint_q_map.end(); it++) {
             dart::dynamics::Joint *j = bh->getJoint(it->first);
             int qidx = j->getIndexInSkeleton(0);
-            u(qidx) = gs.getControl(it->first);
-            dq(qidx) = j->getVelocity(0);
+            double u = gs.getControl(it->first);
+            double dq = j->getVelocity(0);
             if (!gs.isBackdrivable(it->first)) {
                 j->setPositionLowerLimit(0, std::max(j->getPositionLowerLimit(0), it->second-0.01));
             }
@@ -533,20 +535,10 @@ int main(int argc, char** argv) {
             if (gs.isStopped(it->first)) {
                 j->setPositionLowerLimit(0, std::max(j->getPositionLowerLimit(0), it->second-0.01));
                 j->setPositionUpperLimit(0, std::min(j->getPositionUpperLimit(0), it->second+0.01));
-                std::cout << it->first << " " << "stopped" << std::endl;
+//                std::cout << it->first << " " << "stopped" << std::endl;
             }
+            j->setForce(0, 0.02*(u-dq) + Cg(qidx));
         }
-
-        // Compute the joint forces needed to compensate for Coriolis forces and
-        // gravity
-        const Eigen::VectorXd& Cg = bh->getCoriolisAndGravityForces();
-        // Compute the desired joint forces
-        const Eigen::MatrixXd& M = bh->getMassMatrix();
-        Eigen::VectorXd forces(joint_q_map.size());
-        forces = 0.02*(u-dq) + Cg;//M * (u - dq) + Cg;
-        bh->setForces(forces);
-
-        std::cout << u.transpose() << std::endl;
 
         for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
             dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
@@ -563,7 +555,7 @@ int main(int argc, char** argv) {
             if (sk->getName() == bh->getName()) {
                 continue;
             }
-            std::cout << "skeleton: " << sk->getName() << std::endl;
+//            std::cout << "skeleton: " << sk->getName() << std::endl;
 
             for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
                 dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
@@ -575,33 +567,34 @@ int main(int argc, char** argv) {
                     dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
                     if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
                         std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-
-//                        std::cout << "publish " << msh->getMeshPath() << std::endl;
                         m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
-//                        m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, "package://barrett_hand_sim_dart/meshes/HandPalmLink.dae", b->getName());
-    //                    markers_pub.addSinglePointMarkerCube(100, KDL::Vector(), 1, 0, 0, 1, 0.07, 0.07, 0.07, b->getName());
                     }
                 }
             }
         }
 
-/*        for (int bidx = 0; bidx < domino->getNumBodyNodes(); bidx++) {
-            dart::dynamics::BodyNode *b = domino->getBodyNode(bidx);
-            const Eigen::Isometry3d &tf = b->getTransform();
-            KDL::Frame T_W_L;
-            EigenTfToKDL(tf, T_W_L);
-//            std::cout << b->getName() << std::endl;
-            publishTransform(br, T_W_L, b->getName(), "world");
-        }
-*/
-//        markers_pub.addSinglePointMarkerCube(100, KDL::Vector(), 1, 0, 0, 1, 0.07, 0.07, 0.07, "cube5");
         markers_pub.publish();
 
         ros::spinOnce();
         loop_rate.sleep();
 
-//        counter++;
-        if (counter > 100) {
+        counter++;
+        if (counter < 2000) {
+        }
+        else if (counter == 2000) {
+            dart::dynamics::Joint::Properties prop = bh->getJoint(0)->getJointProperties();
+            dart::dynamics::FreeJoint::Properties prop_free;
+            prop_free.mName = prop_free.mName;
+            prop_free.mT_ParentBodyToJoint = prop.mT_ParentBodyToJoint;
+            prop_free.mT_ChildBodyToJoint = prop.mT_ChildBodyToJoint;
+            prop_free.mIsPositionLimited = false;
+            prop_free.mActuatorType = dart::dynamics::Joint::VELOCITY;
+            bh->getRootBodyNode()->changeParentJointType<dart::dynamics::FreeJoint >(prop_free);
+        }
+        else if (counter < 3000) {
+            bh->getDof("Joint_pos_z")->setVelocity(-0.1);
+        }
+        else {
             break;
         }
     }
