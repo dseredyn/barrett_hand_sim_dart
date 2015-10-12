@@ -49,6 +49,7 @@
 
 #include <pcl/common/transforms.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/voxel_grid_covariance.h>
 #include <pcl/point_types.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/common/pca.h>
@@ -86,7 +87,31 @@ public:
 class CollisionModel {
 public:
     std::map<std::string, std::vector<Feature > > link_features_map;
+};
 
+class ObjectModel {
+public:
+    pcl::PointCloud<pcl::PointNormal>::Ptr res;
+    pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures;
+
+    int getRandomIndex(double pc1, double pc2, double tolerance1, double tolerance2) const {
+        std::vector<int > indices(principalCurvatures->points.size());
+        int indices_count = 0;
+        int idx = 0;
+        for (pcl::PointCloud<pcl::PrincipalCurvatures>::const_iterator it = principalCurvatures->begin(); it != principalCurvatures->end(); it++, idx++) {
+            if (std::fabs(it->pc1-pc1) < tolerance1 && std::fabs(it->pc2-pc2) < tolerance2) {
+                indices[indices_count] = idx;
+            }
+        }
+        if (indices_count == 0) {
+            return -1;
+        }
+        return indices[(rand() % indices_count)];
+    }
+
+    bool findFeature(double pc1, double pc2, double tolerance1, double tolerance2, const KDL::Vector &p, double tolerance3, const KDL::Vector &n, double tolerance4) const {
+
+    }
 };
 
 int main(int argc, char** argv) {
@@ -211,15 +236,17 @@ int main(int argc, char** argv) {
     std::map<std::string, pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr > point_pc_clouds_map;
     std::map<std::string, KDL::Frame > frames_map;
     std::map<std::string, std::vector<KDL::Frame > > features_map;
+    std::map<std::string, pcl::VoxelGridCovariance<pcl::PointNormal>::Ptr > grids_map;
     for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
         dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
 
         for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
             dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
             const Eigen::Isometry3d &tf = b->getTransform();
+            const std::string &body_name = b->getName();
             KDL::Frame T_W_L;
             EigenTfToKDL(tf, T_W_L);
-            std::cout << b->getName() << "   " << b->getNumCollisionShapes() << std::endl;
+            std::cout << body_name << "   " << b->getNumCollisionShapes() << std::endl;
             for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
                 dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
                 if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
@@ -234,15 +261,16 @@ int main(int argc, char** argv) {
                         pcl::PointCloud<pcl::PointNormal>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointNormal>);
                         uniform_sampling(sc->mMeshes[midx], 100000, *cloud_1);
                         // Voxelgrid
-                        pcl::VoxelGrid<pcl::PointNormal> grid_;
+                        pcl::VoxelGridCovariance<pcl::PointNormal>::Ptr grid_(new pcl::VoxelGridCovariance<pcl::PointNormal>);
                         pcl::PointCloud<pcl::PointNormal>::Ptr res(new pcl::PointCloud<pcl::PointNormal>);
-                        grid_.setDownsampleAllData(true);
-                        grid_.setSaveLeafLayout(true);
-                        grid_.setInputCloud(cloud_1);
-                        grid_.setLeafSize(0.003, 0.003, 0.003);
-                        grid_.filter (*res);
-                        point_clouds_map[b->getName()] = res;
-                        frames_map[b->getName()] = T_W_L * T_L_S;
+                        grid_->setDownsampleAllData(true);
+                        grid_->setSaveLeafLayout(true);
+                        grid_->setInputCloud(cloud_1);
+                        grid_->setLeafSize(0.003, 0.003, 0.003);
+                        grid_->filter (*res);
+                        point_clouds_map[body_name] = res;
+                        frames_map[body_name] = T_W_L * T_L_S;
+                        grids_map[body_name] = grid_;
 
                         std::cout << "res->points.size(): " << res->points.size() << std::endl;
 
@@ -264,9 +292,9 @@ int main(int argc, char** argv) {
                         // Actually compute the principal curvatures
                         pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures (new pcl::PointCloud<pcl::PrincipalCurvatures> ());
                         principalCurvaturesEstimation.compute (*principalCurvatures);
-                        point_pc_clouds_map[b->getName()] = principalCurvatures;
+                        point_pc_clouds_map[body_name] = principalCurvatures;
 
-                        features_map[b->getName()].resize( res->points.size() );
+                        features_map[body_name].resize( res->points.size() );
 
                         for (int pidx = 0; pidx < res->points.size(); pidx++) {
                             KDL::Vector nx, ny, nz(res->points[pidx].normal[0], res->points[pidx].normal[1], res->points[pidx].normal[2]);
@@ -286,7 +314,7 @@ int main(int argc, char** argv) {
                             nx.Normalize();
                             ny.Normalize();
                             nz.Normalize();
-                            features_map[b->getName()][pidx] = KDL::Frame( KDL::Rotation(nx, ny, nz), KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) );
+                            features_map[body_name][pidx] = KDL::Frame( KDL::Rotation(nx, ny, nz), KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) );
                         }
                     }
                 }
@@ -336,16 +364,23 @@ int main(int argc, char** argv) {
 
     // generate collision model
     const std::string &ob_name = domino->getRootBodyNode()->getName();
-    pcl::PointCloud<pcl::PointNormal>::Ptr ob_res = point_clouds_map[ob_name];
-    pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr ob_principalCurvatures = point_pc_clouds_map[ob_name];
+    ObjectModel om;
+    om.res = point_clouds_map[ob_name];
+    om.principalCurvatures = point_pc_clouds_map[ob_name];
     T_W_O = frames_map[ob_name];
 
     std::map<std::string, std::list<std::pair<int, double> > > link_pt_map;
     CollisionModel cm;
 
-    double dist_range = 0.01;
+    std::list<std::string > gripper_link_names;
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
         const std::string &link_name = bh->getBodyNode(bidx)->getName();
+        gripper_link_names.push_back(link_name);
+    }
+
+    double dist_range = 0.01;
+    for (std::list<std::string >::const_iterator nit = gripper_link_names.begin(); nit != gripper_link_names.end(); nit++) {
+        const std::string &link_name = (*nit);
         if (point_clouds_map.find( link_name ) == point_clouds_map.end()) {
             continue;
         }
@@ -353,10 +388,10 @@ int main(int argc, char** argv) {
         pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures = point_pc_clouds_map[link_name];
         KDL::Frame T_W_S = frames_map[link_name];
 
-        for (int poidx = 0; poidx < ob_res->points.size(); poidx++) {
+        for (int poidx = 0; poidx < om.res->points.size(); poidx++) {
             double min_dist = dist_range + 1.0;
             for (int pidx = 0; pidx < res->points.size(); pidx++) {
-                KDL::Vector p1(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z), p2(ob_res->points[poidx].x, ob_res->points[poidx].y, ob_res->points[poidx].z);
+                KDL::Vector p1(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z), p2(om.res->points[poidx].x, om.res->points[poidx].y, om.res->points[poidx].z);
                 double dist = (T_W_S * p1 - T_W_O * p2).Norm();
                 if (dist < min_dist) {
                     min_dist = dist;
@@ -371,8 +406,8 @@ int main(int argc, char** argv) {
             int fidx = 0;
             for (std::list<std::pair<int, double> >::const_iterator it = link_pt_map[link_name].begin(); it != link_pt_map[link_name].end(); it++, fidx++) {
                 int poidx = it->first;
-                cm.link_features_map[link_name][fidx].pc1 = ob_principalCurvatures->points[poidx].pc1;
-                cm.link_features_map[link_name][fidx].pc2 = ob_principalCurvatures->points[poidx].pc2;
+                cm.link_features_map[link_name][fidx].pc1 = om.principalCurvatures->points[poidx].pc1;
+                cm.link_features_map[link_name][fidx].pc2 = om.principalCurvatures->points[poidx].pc2;
                 KDL::Frame T_W_F = T_W_O * features_map[ob_name][poidx];
                 cm.link_features_map[link_name][fidx].T_L_F = T_W_S.Inverse() * T_W_F;
                 cm.link_features_map[link_name][fidx].dist = it->second / dist_range;
@@ -408,8 +443,16 @@ int main(int argc, char** argv) {
     }
 //*/
 
+/*
+    for (std::map<std::string, double>::const_iterator it = joint_q_map.begin(); it != joint_q_map.end(); it++) {
+        dart::dynamics::Joint *j = bh->getJoint( it-> first );
+        
+        j->getPositionLowerLimit(0)
+        j->setPosition( 0, it->second );
+    }
+*/
     // get a random point on the surface of the object
-    int rand_poidx = rand() % ob_res->points.size();
+    int rand_poidx = rand() % om.res->points.size();
 
     return 0;
 }
