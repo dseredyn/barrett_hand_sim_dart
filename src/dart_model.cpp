@@ -38,12 +38,14 @@
 #include <string>
 #include <stdlib.h>
 #include <stdio.h>
+#include <time.h>
 
 #include "Eigen/Dense"
 
 #include <kdl/frames.hpp>
 
 #include "planer_utils/marker_publisher.h"
+#include "planer_utils/random_uniform.h"
 
 #include <dart/dart.h>
 
@@ -56,6 +58,12 @@
 #include <pcl/features/principal_curvatures.h>
 
 #include "mesh_sampling.h"
+
+const double PI(3.141592653589793);
+
+double getAngle(const KDL::Vector &v1, const KDL::Vector &v2) {
+    return std::atan2((v1*v2).Norm(), KDL::dot(v1,v2));
+}
 
 void EigenTfToKDL(const Eigen::Isometry3d &tf, KDL::Frame &kdlT) {
     kdlT = KDL::Frame( KDL::Rotation(tf(0,0),tf(0,1),tf(0,2), tf(1,0), tf(1,1), tf(1,2), tf(2,0), tf(2,1), tf(2,2)), KDL::Vector(tf(0,3), tf(1,3), tf(2,3)) );
@@ -87,12 +95,45 @@ public:
 class CollisionModel {
 public:
     std::map<std::string, std::vector<Feature > > link_features_map;
+
+    std::map<std::string, double> joint_q_map_;
+    std::map<std::string, KDL::Frame > frames_map_;
+
+    bool getRandomFeature(std::string &link_name, Feature &feature) const {
+        int features_count = 0;
+        for (std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.begin(); it != link_features_map.end(); it++) {
+            features_count += it->second.size();
+        }
+        int feature_idx = rand() % features_count;
+        for (std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.begin(); it != link_features_map.end(); it++) {
+            if (feature_idx < it->second.size()) {
+                feature = it->second[feature_idx];
+                link_name = it->first;
+                return true;
+            }
+            else {
+                feature_idx -= it->second.size();
+            }
+        }
+        std::cout << "ERROR: getRandomFeature" << std::endl;
+        return false;
+    }
+
+    void getTransform(const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) const {
+        std::map<std::string, KDL::Frame >::const_iterator it1( frames_map_.find(link1_name) );
+        std::map<std::string, KDL::Frame >::const_iterator it2( frames_map_.find(link2_name) );
+        const KDL::Frame &T_W_L1 = it1->second;
+        const KDL::Frame &T_W_L2 = it2->second;
+        T_L1_L2 = T_W_L1.Inverse() * T_W_L2;
+    }
 };
 
 class ObjectModel {
 public:
     pcl::PointCloud<pcl::PointNormal>::Ptr res;
     pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures;
+    boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > grid_;
+    boost::shared_ptr<std::vector<KDL::Frame > > features_;
 
     int getRandomIndex(double pc1, double pc2, double tolerance1, double tolerance2) const {
         std::vector<int > indices(principalCurvatures->points.size());
@@ -101,6 +142,7 @@ public:
         for (pcl::PointCloud<pcl::PrincipalCurvatures>::const_iterator it = principalCurvatures->begin(); it != principalCurvatures->end(); it++, idx++) {
             if (std::fabs(it->pc1-pc1) < tolerance1 && std::fabs(it->pc2-pc2) < tolerance2) {
                 indices[indices_count] = idx;
+                indices_count++;
             }
         }
         if (indices_count == 0) {
@@ -109,13 +151,53 @@ public:
         return indices[(rand() % indices_count)];
     }
 
-    bool findFeature(double pc1, double pc2, double tolerance1, double tolerance2, const KDL::Vector &p, double tolerance3, const KDL::Vector &n, double tolerance4) const {
+    bool findFeature(double pc1, double pc2, double tolerance1, double tolerance2, const KDL::Frame &f, double radius, double tolerance4) const {
+        pcl::PointNormal p;
+        p.x = f.p.x();
+        p.y = f.p.y();
+        p.z = f.p.z();
 
+        Eigen::Vector3f size = grid_->getLeafSize();
+        Eigen::Vector3i min = grid_->getMinBoxCoordinates();
+        Eigen::Vector3i max = grid_->getMaxBoxCoordinates();
+        Eigen::Vector3i centre = grid_->getGridCoordinates(f.p.x(), f.p.y(), f.p.z());
+        for (int i = 0; i < 3; i++) {
+            int size_i = std::ceil(radius / size(i) );
+            min(i) = std::max(centre(i)-size_i, min(i));
+            max(i) = std::min(centre(i)+size_i, max(i));
+        }
+
+        for (int ix = min(0); ix <= max(0); ix++) {
+            for (int iy = min(1); iy <= max(1); iy++) {
+                for (int iz = min(2); iz <= max(2); iz++) {
+                    int idx = grid_->getCentroidIndexAt(Eigen::Vector3i(ix, iy, iz));
+                    if (std::fabs(principalCurvatures->points[idx].pc1-pc1) < tolerance1 && std::fabs(principalCurvatures->points[idx].pc2-pc2) < tolerance2) {
+                        const KDL::Rotation &iM = (*features_)[idx].M;
+                        double angle = 0.0;
+                        if (pc1 > 1.1 * pc2) {
+                            // e.g. pc1=1, pc2=0
+                            // edge
+                            KDL::Vector dM1 = KDL::diff(f.M, iM, 1.0);
+                            KDL::Vector dM2 = KDL::diff(f.M * KDL::Rotation::RotZ(PI), iM, 1.0);
+                            angle = std::min(dM1.Norm(), dM2.Norm());
+                        }
+                        else {
+                            angle = getAngle(iM * KDL::Vector(0,0,1), f.M * KDL::Vector(0,0,1));
+                        }
+                        if (angle < tolerance4) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
     }
 };
 
 int main(int argc, char** argv) {
-    const double PI(3.141592653589793);
+
+    srand ( time(NULL) );
 
     // read grasp state from the input
     double px, py, pz, qx, qy, qz, qw;
@@ -235,8 +317,8 @@ int main(int argc, char** argv) {
     std::map<std::string, pcl::PointCloud<pcl::PointNormal>::Ptr > point_clouds_map;
     std::map<std::string, pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr > point_pc_clouds_map;
     std::map<std::string, KDL::Frame > frames_map;
-    std::map<std::string, std::vector<KDL::Frame > > features_map;
-    std::map<std::string, pcl::VoxelGridCovariance<pcl::PointNormal>::Ptr > grids_map;
+    std::map<std::string, boost::shared_ptr<std::vector<KDL::Frame > > > features_map;
+    std::map<std::string, boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > > grids_map;
     for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
         dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
 
@@ -261,7 +343,7 @@ int main(int argc, char** argv) {
                         pcl::PointCloud<pcl::PointNormal>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointNormal>);
                         uniform_sampling(sc->mMeshes[midx], 100000, *cloud_1);
                         // Voxelgrid
-                        pcl::VoxelGridCovariance<pcl::PointNormal>::Ptr grid_(new pcl::VoxelGridCovariance<pcl::PointNormal>);
+                        boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > grid_(new pcl::VoxelGrid<pcl::PointNormal>);
                         pcl::PointCloud<pcl::PointNormal>::Ptr res(new pcl::PointCloud<pcl::PointNormal>);
                         grid_->setDownsampleAllData(true);
                         grid_->setSaveLeafLayout(true);
@@ -294,7 +376,7 @@ int main(int argc, char** argv) {
                         principalCurvaturesEstimation.compute (*principalCurvatures);
                         point_pc_clouds_map[body_name] = principalCurvatures;
 
-                        features_map[body_name].resize( res->points.size() );
+                        features_map[body_name].reset( new std::vector<KDL::Frame >(res->points.size()) );
 
                         for (int pidx = 0; pidx < res->points.size(); pidx++) {
                             KDL::Vector nx, ny, nz(res->points[pidx].normal[0], res->points[pidx].normal[1], res->points[pidx].normal[2]);
@@ -314,7 +396,7 @@ int main(int argc, char** argv) {
                             nx.Normalize();
                             ny.Normalize();
                             nz.Normalize();
-                            features_map[body_name][pidx] = KDL::Frame( KDL::Rotation(nx, ny, nz), KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) );
+                            (*features_map[body_name])[pidx] = KDL::Frame( KDL::Rotation(nx, ny, nz), KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) );
                         }
                     }
                 }
@@ -341,14 +423,13 @@ int main(int argc, char** argv) {
 
             for (int pidx = 0; pidx < res->points.size(); pidx++) {
                 KDL::Vector v1 = T_W_S * KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z);
-                KDL::Vector v2 = T_W_S * features_map[link_name][pidx] * KDL::Vector(0, 0, 0.01);
-                KDL::Vector v3 = T_W_S * features_map[link_name][pidx] * KDL::Vector(0.01, 0, 0);
-//                KDL::Vector v2 = T_W_S * (KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) + 0.01 * KDL::Vector(res->points[pidx].normal[0], res->points[pidx].normal[1], res->points[pidx].normal[2]));
-//                KDL::Vector v3 = T_W_S * (KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) + 0.01 * KDL::Vector(principalCurvatures->points[pidx].principal_curvature[0], principalCurvatures->points[pidx].principal_curvature[1], principalCurvatures->points[pidx].principal_curvature[2]));
-                double f = principalCurvatures->points[pidx].pc1 * 4.0;
-                m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, "world");
-                m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, "world");
-                m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, "world");
+                KDL::Vector v2 = T_W_S * (*features_map[link_name])[pidx] * KDL::Vector(0, 0, 0.01);
+                KDL::Vector v3 = T_W_S * (*features_map[link_name])[pidx] * KDL::Vector(0.01, 0, 0);
+//                double f = principalCurvatures->points[pidx].pc1 * 4.0;
+//                m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, "world");
+//                m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, "world");
+//                m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, "world");
+                m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(principalCurvatures->points[pidx].pc1, principalCurvatures->points[pidx].pc2, 0), 0, 1, 0, 1, 0.001, 0.001, 0.001, "world");
             }
         }
     }
@@ -362,15 +443,20 @@ int main(int argc, char** argv) {
     return 0;
 //*/
 
-    // generate collision model
+    // generate object model
     const std::string &ob_name = domino->getRootBodyNode()->getName();
     ObjectModel om;
     om.res = point_clouds_map[ob_name];
     om.principalCurvatures = point_pc_clouds_map[ob_name];
+    om.grid_ = grids_map[ob_name];
+    om.features_ = features_map[ob_name];
     T_W_O = frames_map[ob_name];
 
+    // generate collision model
     std::map<std::string, std::list<std::pair<int, double> > > link_pt_map;
     CollisionModel cm;
+    cm.joint_q_map_ = joint_q_map;
+    cm.frames_map_ = frames_map;
 
     std::list<std::string > gripper_link_names;
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
@@ -408,14 +494,14 @@ int main(int argc, char** argv) {
                 int poidx = it->first;
                 cm.link_features_map[link_name][fidx].pc1 = om.principalCurvatures->points[poidx].pc1;
                 cm.link_features_map[link_name][fidx].pc2 = om.principalCurvatures->points[poidx].pc2;
-                KDL::Frame T_W_F = T_W_O * features_map[ob_name][poidx];
+                KDL::Frame T_W_F = T_W_O * (*features_map[ob_name])[poidx];
                 cm.link_features_map[link_name][fidx].T_L_F = T_W_S.Inverse() * T_W_F;
                 cm.link_features_map[link_name][fidx].dist = it->second / dist_range;
             }
         }        
     }
 
-//*
+/*
     // visualise the features
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
         const std::string &link_name = bh->getBodyNode(bidx)->getName();
@@ -435,12 +521,6 @@ int main(int argc, char** argv) {
             m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, "world");
         }
     }
-    markers_pub.publish();
-
-    for (int i = 0; i < 100; i++) {
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
 //*/
 
 /*
@@ -453,6 +533,80 @@ int main(int argc, char** argv) {
 */
     // get a random point on the surface of the object
     int rand_poidx = rand() % om.res->points.size();
+
+    for (double x = -0.1; x < 0.1; x+=0.005) {
+        for (double y = -0.1; y < 0.1; y+=0.005) {
+            for (double z = -0.1; z < 0.1; z+=0.005) {
+                KDL::Frame f(KDL::Rotation::RotX(45.0/180.0*PI) * KDL::Rotation::RotZ(180.0/180.0*PI), KDL::Vector(x, y, z));
+                if (om.findFeature(0.3, 0.0, 0.1, 0.1, f, 0.005, 20.0/180.0*PI)) {
+//                    std::cout << "found" << std::endl;
+                    m_id = markers_pub.addSinglePointMarkerCube(m_id, f.p, 0, 0, 1, 1, 0.001, 0.001, 0.001, ob_name);
+                }
+            }
+        }
+    }
+
+    markers_pub.publish();
+
+    for (int i = 0; i < 100; i++) {
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
+
+    std::string link1_name, link2_name;
+    Feature feature1, feature2;
+    cm.getRandomFeature(link1_name, feature1);
+    std::cout << "getRandomFeature: " << link1_name << " " << feature1.pc1 << " " << feature1.pc2 << " " << feature1.dist << " " << feature1.T_L_F.p.x() << " " << feature1.T_L_F.p.y() << " " << feature1.T_L_F.p.z() << std::endl;
+    KDL::Frame T_F1_L1 = feature1.T_L_F.Inverse();
+/*
+    if (feature1.pc1 > 1.1 * feature1.pc2) {
+        // edge
+        if ((rand() % 2) == 0) {
+            T_F1_L1 = KDL::Rotation::RotZ(PI) * T_F1_L;
+        }
+    }
+    else {
+        T_F1_L1 = KDL::Rotation::RotZ(randomUniform(-PI, PI)) * T_F1_L;
+    }
+*/
+    int fidx1 = om.getRandomIndex(feature1.pc1, feature1.pc2, 0.05, 0.05);
+    std::cout << "fidx1 " << fidx1 << std::endl;
+    KDL::Frame T_O_Fo1 = (*om.features_)[fidx1];
+    std::cout << T_O_Fo1.p.x() << " " << T_O_Fo1.p.y() << " " << T_O_Fo1.p.z() << std::endl;
+
+    m_id = markers_pub.addSinglePointMarkerCube(m_id, T_O_Fo1.p, 1, 0, 0, 1, 0.001, 0.001, 0.001, ob_name);
+
+    if (feature1.pc1 > 1.1 * feature1.pc2) {
+        // edge
+        if ((rand() % 2) == 0) {
+            T_O_Fo1 = T_O_Fo1 * KDL::Frame( KDL::Rotation::RotZ(PI) );
+        }
+    }
+    else {
+        T_O_Fo1 = T_O_Fo1 * KDL::Frame( KDL::Rotation::RotZ(randomUniform(-PI, PI)) );
+    }
+
+    int features_found = 0;
+    for (int i = 0; i < 100; i++) {
+        cm.getRandomFeature(link2_name, feature2);
+        KDL::Frame T_L1_L2;
+        cm.getTransform(link1_name, link2_name, T_L1_L2);
+        KDL::Frame T_F1_F2 = T_F1_L1 * T_L1_L2 * feature2.T_L_F;
+
+        KDL::Frame T_O_Fo2 = T_O_Fo1 * T_F1_F2;
+        if (om.findFeature(feature2.pc1, feature2.pc2, 0.05, 0.05, T_O_Fo2, 0.005, 20.0/180.0*PI)) {
+            features_found++;
+            m_id = markers_pub.addSinglePointMarkerCube(m_id, T_O_Fo2.p, 0, 0, 1, 1, 0.001, 0.001, 0.001, ob_name);
+        }
+    }
+    std::cout << "features_found " << features_found << std::endl;
+
+    markers_pub.publish();
+
+    for (int i = 0; i < 100; i++) {
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
 
     return 0;
 }
