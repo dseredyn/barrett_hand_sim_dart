@@ -126,6 +126,41 @@ public:
         const KDL::Frame &T_W_L2 = it2->second;
         T_L1_L2 = T_W_L1.Inverse() * T_W_L2;
     }
+
+    void addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
+                        const pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr &principalCurvatures, const KDL::Frame &T_W_S,
+                        const pcl::PointCloud<pcl::PointNormal>::Ptr &ob_res, const pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr &ob_principalCurvatures,
+                        const KDL::Frame &T_W_O, const boost::shared_ptr<std::vector<KDL::Frame > > &feature_frames) {
+
+        std::list<std::pair<int, double> > link_pt;
+
+        for (int poidx = 0; poidx < ob_res->points.size(); poidx++) {
+            double min_dist = dist_range + 1.0;
+            for (int pidx = 0; pidx < res->points.size(); pidx++) {
+                KDL::Vector p1(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z), p2(ob_res->points[poidx].x, ob_res->points[poidx].y, ob_res->points[poidx].z);
+                double dist = (T_W_S * p1 - T_W_O * p2).Norm();
+                if (dist < min_dist) {
+                    min_dist = dist;
+                }
+            }
+            if (min_dist < dist_range) {
+                link_pt.push_back( std::make_pair(poidx, min_dist) );
+            }
+        }
+        if ( link_pt.size() > 0 ) {
+            link_features_map[link_name].resize( link_pt.size() );
+            int fidx = 0;
+            for (std::list<std::pair<int, double> >::const_iterator it = link_pt.begin(); it != link_pt.end(); it++, fidx++) {
+                int poidx = it->first;
+                link_features_map[link_name][fidx].pc1 = ob_principalCurvatures->points[poidx].pc1;
+                link_features_map[link_name][fidx].pc2 = ob_principalCurvatures->points[poidx].pc2;
+                KDL::Frame T_W_F = T_W_O * (*feature_frames)[poidx];
+                link_features_map[link_name][fidx].T_L_F = T_W_S.Inverse() * T_W_F;
+                link_features_map[link_name][fidx].dist = it->second / dist_range;
+            }
+        }
+    }
+
 };
 
 class ObjectModel {
@@ -470,6 +505,15 @@ int main(int argc, char** argv) {
         if (point_clouds_map.find( link_name ) == point_clouds_map.end()) {
             continue;
         }
+        cm.addLinkContacts(dist_range, link_name, point_clouds_map[link_name], point_pc_clouds_map[link_name], frames_map[link_name],
+                            om.res, om.principalCurvatures, T_W_O, features_map[ob_name]);
+
+
+/*    void addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
+                        const pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr &principalCurvatures, const KDL::Frame &T_W_S,
+                        const pcl::PointCloud<pcl::PointNormal>::Ptr &ob_res, const pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr &ob_principalCurvatures,
+                        const KDL::Frame &T_W_O);
+
         pcl::PointCloud<pcl::PointNormal>::Ptr res = point_clouds_map[link_name];
         pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures = point_pc_clouds_map[link_name];
         KDL::Frame T_W_S = frames_map[link_name];
@@ -499,6 +543,7 @@ int main(int argc, char** argv) {
                 cm.link_features_map[link_name][fidx].dist = it->second / dist_range;
             }
         }        
+*/
     }
 
 /*
@@ -531,9 +576,9 @@ int main(int argc, char** argv) {
         j->setPosition( 0, it->second );
     }
 */
-    // get a random point on the surface of the object
-    int rand_poidx = rand() % om.res->points.size();
 
+/*
+    // TEST: finding features
     for (double x = -0.1; x < 0.1; x+=0.005) {
         for (double y = -0.1; y < 0.1; y+=0.005) {
             for (double z = -0.1; z < 0.1; z+=0.005) {
@@ -552,23 +597,17 @@ int main(int argc, char** argv) {
         ros::spinOnce();
         loop_rate.sleep();
     }
-
+*/
     std::string link1_name, link2_name;
     Feature feature1, feature2;
     cm.getRandomFeature(link1_name, feature1);
     std::cout << "getRandomFeature: " << link1_name << " " << feature1.pc1 << " " << feature1.pc2 << " " << feature1.dist << " " << feature1.T_L_F.p.x() << " " << feature1.T_L_F.p.y() << " " << feature1.T_L_F.p.z() << std::endl;
     KDL::Frame T_F1_L1 = feature1.T_L_F.Inverse();
-/*
-    if (feature1.pc1 > 1.1 * feature1.pc2) {
-        // edge
-        if ((rand() % 2) == 0) {
-            T_F1_L1 = KDL::Rotation::RotZ(PI) * T_F1_L;
-        }
-    }
-    else {
-        T_F1_L1 = KDL::Rotation::RotZ(randomUniform(-PI, PI)) * T_F1_L;
-    }
-*/
+
+//    for (int try_idx = 0; try_idx < 10000; try_idx++) {
+//    while (ros::ok()) {
+
+    m_id = 101;
     int fidx1 = om.getRandomIndex(feature1.pc1, feature1.pc2, 0.05, 0.05);
     std::cout << "fidx1 " << fidx1 << std::endl;
     KDL::Frame T_O_Fo1 = (*om.features_)[fidx1];
@@ -601,12 +640,19 @@ int main(int argc, char** argv) {
     }
     std::cout << "features_found " << features_found << std::endl;
 
+//    }
+
+    markers_pub.addEraseMarkers(m_id, m_id+300);
+
     markers_pub.publish();
 
     for (int i = 0; i < 100; i++) {
         ros::spinOnce();
         loop_rate.sleep();
     }
+
+//    getchar();
+//    }   // while (ros::ok())
 
     return 0;
 }
