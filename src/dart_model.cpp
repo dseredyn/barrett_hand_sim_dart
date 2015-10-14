@@ -120,36 +120,6 @@ public:
         return false;
     }
 
-    void computeRelativeTransforms(const std::map<std::string, std::list<KDL::Frame > > &frames_disturbed_map) {
-        for (std::map<std::string, std::list<KDL::Frame > >::const_iterator it1 = frames_disturbed_map.begin(); it1 != frames_disturbed_map.end(); it1++) {
-            for (std::map<std::string, std::list<KDL::Frame > >::const_iterator it2 = frames_disturbed_map.begin(); it2 != frames_disturbed_map.end(); it2++) {
-                if (it1->first == it2->first) {
-                    continue;
-                }
-                std::list<KDL::Frame > &fr_list = frames_rel_map_[std::make_pair(it1->first, it2->first)];
-                for (std::list<KDL::Frame >::const_iterator frit1 = it1->second.begin(); frit1 != it1->second.end(); frit1++) {
-                    for (std::list<KDL::Frame >::const_iterator frit2 = it2->second.begin(); frit2 != it2->second.end(); frit2++) {
-                        KDL::Frame T_L1_L2 = frit1->Inverse() * (*frit2);
-                        bool close_found = false;
-                        for (std::list<KDL::Frame >::const_iterator frit = fr_list.begin(); frit != fr_list.end(); frit++) {
-                            KDL::Twist diff = KDL::diff(T_L1_L2, (*frit), 1.0);
-                            if (diff.vel.Norm() < 0.003) {
-                                close_found = true;
-                                break;
-                            }
-                        }
-                        if (!close_found) {
-                            fr_list.push_back(T_L1_L2);
-                        }
-                    }
-                }
-            }
-        }
-        for (std::map<std::pair<std::string, std::string>, std::list<KDL::Frame> >::const_iterator it = frames_rel_map_.begin(); it != frames_rel_map_.end(); it++) {
-            std::cout << it->first.first << "  " << it->first.second << "  " << it->second.size() << std::endl;
-        }
-    }
-
     void getTransform(const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) const {
         std::map<std::string, KDL::Frame >::const_iterator it1( frames_map_.find(link1_name) );
         std::map<std::string, KDL::Frame >::const_iterator it2( frames_map_.find(link2_name) );
@@ -523,12 +493,12 @@ int main(int argc, char** argv) {
         }   // for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++)
     }
 
-
     for (std::map<std::string, std::list<KDL::Frame > >::const_iterator it = frames_disturbed_map.begin(); it != frames_disturbed_map.end(); it++) {
         std::cout << it->first << "  " << it->second.size() << std::endl;
     }
 
     int m_id = 101;
+
 /*
     // visualisation of the point clouds and the curvatures
     for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
@@ -576,12 +546,14 @@ int main(int argc, char** argv) {
     om.features_ = features_map[ob_name];
     T_W_O = frames_map[ob_name];
 
+    std::cout << "points in the object model: " << om.res << std::endl;
+
     // generate collision model
     std::map<std::string, std::list<std::pair<int, double> > > link_pt_map;
     CollisionModel cm;
     cm.joint_q_map_ = joint_q_map;
     cm.frames_map_ = frames_map;
-    cm.computeRelativeTransforms(frames_disturbed_map);
+//    cm.computeRelativeTransforms(frames_disturbed_map);
 
     std::list<std::string > gripper_link_names;
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
@@ -654,7 +626,7 @@ int main(int argc, char** argv) {
     std::string link1_name, link2_name;
     Feature feature1, feature2;
     cm.getRandomFeature(link1_name, feature1);
-    std::cout << "getRandomFeature: " << link1_name << " " << feature1.pc1 << " " << feature1.pc2 << " " << feature1.dist << " " << feature1.T_L_F.p.x() << " " << feature1.T_L_F.p.y() << " " << feature1.T_L_F.p.z() << std::endl;
+//    std::cout << "getRandomFeature: " << link1_name << " " << feature1.pc1 << " " << feature1.pc2 << " " << feature1.dist << " " << feature1.T_L_F.p.x() << " " << feature1.T_L_F.p.y() << " " << feature1.T_L_F.p.z() << std::endl;
     KDL::Frame T_F1_L1 = feature1.T_L_F.Inverse();
 
 //    for (int try_idx = 0; try_idx < 10000; try_idx++) {
