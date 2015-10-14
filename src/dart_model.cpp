@@ -95,10 +95,60 @@ public:
 class CollisionModel {
 public:
     std::map<std::string, std::vector<Feature > > link_features_map;
+    std::map<std::string, std::vector<Feature > > link_features_map_edge;
+    std::map<std::string, std::vector<Feature > > link_features_map_sym;
 
     std::map<std::string, double> joint_q_map_;
     std::map<std::string, KDL::Frame > frames_map_;
     std::map<std::pair<std::string, std::string>, std::list<KDL::Frame> > frames_rel_map_;
+
+    void buildFeatureMaps() {
+        for (std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.begin(); it != link_features_map.end(); it++) {
+            const std::string &link_name = it->first;
+            const std::vector<Feature > &fvec = it->second;
+            link_features_map_edge.insert( std::make_pair(link_name, std::vector<Feature>()) );
+            link_features_map_sym.insert( std::make_pair(link_name, std::vector<Feature>()) );
+            for (std::vector<Feature >::const_iterator fit = fvec.begin(); fit != fvec.end(); fit++) {
+                const Feature &feature = (*fit);
+                if (feature.pc1 > 1.1 * feature.pc2) {
+                    // edge
+                    link_features_map_edge[it->first].push_back(feature);
+                }
+                else {
+                    link_features_map_sym[it->first].push_back(feature);
+                }
+            }
+        }
+    }
+
+    bool getRandomFeatureForLink(const std::string &link_name, Feature &feature) const {
+        std::map<std::string, std::vector<Feature > >::const_iterator it_edge = link_features_map_edge.find(link_name);
+        std::map<std::string, std::vector<Feature > >::const_iterator it_sym = link_features_map_sym.find(link_name);
+        if (it_edge == link_features_map_edge.end()) {
+            std::cout << "ERROR: getRandomFeatureForLink: it_edge == link_features_map_edge.end()" << std::endl;
+            return false;
+        }
+        if (it_sym == link_features_map_sym.end()) {
+            std::cout << "ERROR: getRandomFeatureForLink: it_sym == link_features_map_sym.end()" << std::endl;
+            return false;
+        }
+
+        int idx = rand() % (it_edge->second.size() * 2 + it_sym->second.size() * 36);
+        if (idx < it_edge->second.size()*2) {
+            idx = idx / 2;
+            feature = it_edge->second[idx];
+            if ((rand() % 2) == 0) {
+                feature.T_L_F = feature.T_L_F * KDL::Frame( KDL::Rotation::RotZ(PI) );
+            }
+        }
+        else {
+            idx -= it_edge->second.size()*2;
+            idx = idx / 36;
+            feature = it_sym->second[idx];
+            feature.T_L_F = feature.T_L_F * KDL::Frame( KDL::Rotation::RotZ(randomUniform(-PI, PI)) );
+        }
+        return true;
+    }
 
     bool getRandomFeature(std::string &link_name, Feature &feature) const {
         int features_count = 0;
@@ -441,62 +491,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::map<std::string, std::list<KDL::Frame > > frames_disturbed_map;
-
-    // generate transforms for gripper links with disturbed joint values
-    for (int i = 0; i < 1000; i++) {
-        std::map<std::string, double> joint_random_diff_map;
-        joint_random_diff_map["right_HandFingerOneKnuckleOneJoint"] = randomUniform(-10.0/180.0*PI, 10.0/180.0*PI);
-        joint_random_diff_map["right_HandFingerTwoKnuckleOneJoint"] = joint_random_diff_map["right_HandFingerOneKnuckleOneJoint"];
-        joint_random_diff_map["right_HandFingerOneKnuckleTwoJoint"] = randomUniform(-20.0/180.0*PI, 20.0/180.0*PI);
-        joint_random_diff_map["right_HandFingerOneKnuckleThreeJoint"] = 0.3333333 * joint_random_diff_map["right_HandFingerOneKnuckleTwoJoint"];
-        joint_random_diff_map["right_HandFingerTwoKnuckleTwoJoint"] = randomUniform(-20.0/180.0*PI, 20.0/180.0*PI);
-        joint_random_diff_map["right_HandFingerTwoKnuckleThreeJoint"] = 0.3333333 * joint_random_diff_map["right_HandFingerTwoKnuckleTwoJoint"];
-        joint_random_diff_map["right_HandFingerThreeKnuckleTwoJoint"] = randomUniform(-20.0/180.0*PI, 20.0/180.0*PI);
-        joint_random_diff_map["right_HandFingerThreeKnuckleThreeJoint"] = 0.3333333 * joint_random_diff_map["right_HandFingerThreeKnuckleTwoJoint"];
-
-        for (std::map<std::string, double>::const_iterator it = joint_q_map.begin(); it != joint_q_map.end(); it++) {
-            dart::dynamics::Joint *j = bh->getJoint( it-> first );
-            double q = joint_random_diff_map[it->first] + it->second;
-            q = std::max(q, j->getPositionLowerLimit(0));
-            q = std::min(q, j->getPositionUpperLimit(0));
-            j->setPosition( 0, q );
-        }
-        dart::dynamics::SkeletonPtr sk = bh;
-        for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
-            dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
-            const Eigen::Isometry3d &tf = b->getTransform();
-            const std::string &body_name = b->getName();
-            KDL::Frame T_W_L;
-            EigenTfToKDL(tf, T_W_L);
-            for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
-                dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
-                if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
-                    const Eigen::Isometry3d &tf = sh->getLocalTransform();
-                    KDL::Frame T_L_S;
-                    EigenTfToKDL(tf, T_L_S);
-                    std::list<KDL::Frame > &fr_list = frames_disturbed_map[body_name];
-                    KDL::Frame T_W_S = T_W_L * T_L_S;
-                    bool close_found = false;
-                    for (std::list<KDL::Frame >::const_iterator frit = fr_list.begin(); frit != fr_list.end(); frit++) {
-                        KDL::Twist diff = KDL::diff(T_W_S, (*frit), 1.0);
-                        if (diff.vel.Norm() < 0.003) {
-                            close_found = true;
-                            break;
-                        }
-                    }
-                    if (!close_found) {
-                        fr_list.push_back(T_W_S);
-                    }
-                }
-            }   // for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++)
-        }   // for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++)
-    }
-
-    for (std::map<std::string, std::list<KDL::Frame > >::const_iterator it = frames_disturbed_map.begin(); it != frames_disturbed_map.end(); it++) {
-        std::cout << it->first << "  " << it->second.size() << std::endl;
-    }
-
     int m_id = 101;
 
 /*
@@ -553,7 +547,6 @@ int main(int argc, char** argv) {
     CollisionModel cm;
     cm.joint_q_map_ = joint_q_map;
     cm.frames_map_ = frames_map;
-//    cm.computeRelativeTransforms(frames_disturbed_map);
 
     std::list<std::string > gripper_link_names;
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
@@ -571,8 +564,10 @@ int main(int argc, char** argv) {
                             om.res, om.principalCurvatures, T_W_O, features_map[ob_name]);
     }
 
+    cm.buildFeatureMaps();
+
 /*
-    // visualise the features
+    // visualise all features
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
         const std::string &link_name = bh->getBodyNode(bidx)->getName();
         if (cm.link_features_map.find( link_name ) == cm.link_features_map.end()) {
@@ -591,6 +586,47 @@ int main(int argc, char** argv) {
             m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, "world");
         }
     }
+
+    markers_pub.addEraseMarkers(m_id, m_id+300);
+
+    markers_pub.publish();
+
+    for (int i = 0; i < 100; i++) {
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
+
+    return 0;
+//*/
+/*
+    // visualise random features
+    for (int i = 0; i < 100; i++) {
+        std::string link_name("right_HandFingerOneKnuckleThreeLink");
+        Feature feature;
+        cm.getRandomFeatureForLink(link_name, feature);
+        const KDL::Frame &T_W_L = frames_map[link_name];
+            KDL::Frame T_W_F = T_W_L * feature.T_L_F;
+            KDL::Vector v1 = T_W_F * KDL::Vector();
+            KDL::Vector v2 = T_W_F * KDL::Vector(0, 0, 0.01);
+            KDL::Vector v3 = T_W_F * KDL::Vector(0.01, 0, 0);
+            double f = feature.pc1 * 4.0;
+            //double f = feature.dist;
+            m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, "world");
+            m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, "world");
+            m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, "world");
+    }
+
+    markers_pub.addEraseMarkers(m_id, m_id+300);
+
+    markers_pub.publish();
+
+    for (int i = 0; i < 100; i++) {
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
+
+    return 0;
+
 //*/
 
 /*
@@ -623,6 +659,18 @@ int main(int argc, char** argv) {
         loop_rate.sleep();
     }
 */
+
+    for (int i = 0; i < 1000; i++) {
+
+
+        std::string link_name("right_HandFingerOneKnuckleThreeLink");
+        Feature feature;
+        cm.getRandomFeatureForLink(link_name, feature);
+        
+    }
+
+
+
     std::string link1_name, link2_name;
     Feature feature1, feature2;
     cm.getRandomFeature(link1_name, feature1);
