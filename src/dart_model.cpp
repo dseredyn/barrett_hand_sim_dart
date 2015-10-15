@@ -46,6 +46,7 @@
 
 #include "planer_utils/marker_publisher.h"
 #include "planer_utils/random_uniform.h"
+#include "planer_utils/utilities.h"
 
 #include <dart/dart.h>
 
@@ -220,6 +221,23 @@ public:
     pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures;
     boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > grid_;
     boost::shared_ptr<std::vector<KDL::Frame > > features_;
+
+    void randomizeSurface() {
+        for (int idx = 0; idx < res->points.size(); idx++) {
+            double pc1 = principalCurvatures->points[idx].pc1;
+            double pc2 = principalCurvatures->points[idx].pc2;
+            if (pc1 > 1.1 * pc2) {
+                // e.g. pc1=1, pc2=0
+                // edge
+                if ((rand() % 2) == 0) {
+                    (*features_)[idx] = (*features_)[idx] * KDL::Frame(KDL::Rotation::RotZ(PI));
+                }
+            }
+            else {
+                (*features_)[idx] = (*features_)[idx] * KDL::Frame(KDL::Rotation::RotZ(randomUniform(-PI, PI)));
+            }
+        }
+    }
 
     int getRandomIndex(double pc1, double pc2, double tolerance1, double tolerance2) const {
         std::vector<int > indices(principalCurvatures->points.size());
@@ -540,8 +558,6 @@ int main(int argc, char** argv) {
     om.features_ = features_map[ob_name];
     T_W_O = frames_map[ob_name];
 
-    std::cout << "points in the object model: " << om.res << std::endl;
-
     // generate collision model
     std::map<std::string, std::list<std::pair<int, double> > > link_pt_map;
     CollisionModel cm;
@@ -566,7 +582,27 @@ int main(int argc, char** argv) {
 
     cm.buildFeatureMaps();
 
+    om.randomizeSurface();
+
 /*
+    // visuzlise all features on the object
+    for (int idx = 0; idx < (*om.features_).size(); idx++) {
+        const KDL::Frame &T_O_F = (*om.features_)[idx];
+        KDL::Vector v1 = T_O_F * KDL::Vector();
+        KDL::Vector v2 = T_O_F * KDL::Vector(0, 0, 0.01);
+        KDL::Vector v3 = T_O_F * KDL::Vector(0.01, 0, 0);
+        m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, ob_name);
+        m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, ob_name);
+    }
+    markers_pub.addEraseMarkers(m_id, m_id+300);
+    markers_pub.publish();
+    for (int i = 0; i < 100; i++) {
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
+    return 0;
+//*
+//*
     // visualise all features
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
         const std::string &link_name = bh->getBodyNode(bidx)->getName();
@@ -586,16 +622,12 @@ int main(int argc, char** argv) {
             m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, "world");
         }
     }
-
     markers_pub.addEraseMarkers(m_id, m_id+300);
-
     markers_pub.publish();
-
     for (int i = 0; i < 100; i++) {
         ros::spinOnce();
         loop_rate.sleep();
     }
-
     return 0;
 //*/
 /*
@@ -660,6 +692,99 @@ int main(int argc, char** argv) {
     }
 */
 
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    std::vector<double > weights(om.res->points.size());
+
+    const double sigma_p = 0.003;
+    std::cout << "generating random points..." << std::endl;
+    for (int i = 0; i < 10000; i++) {
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            weights[pidx] = 1.0 / static_cast<double >(om.res->points.size());
+        }
+
+        double rr = randomUniform(0.0, 1.0);
+        double result_x, result_y, result_z;
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                result_x = om.res->points[pidx].x;
+                break;
+            }
+        }
+
+        
+        std::normal_distribution<> d(result_x, sigma_p);
+        result_x = d(gen);
+
+        double sum = 0.0;
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            weights[pidx] = uniVariateIsotropicGaussianKernel(result_x, om.res->points[pidx].x, sigma_p);
+            sum += weights[pidx];
+        }
+
+        rr = randomUniform(0.0, sum);
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                result_y = om.res->points[pidx].y;
+                break;
+            }
+        }
+
+        d = std::normal_distribution<>(result_y, sigma_p);
+        result_y = d(gen);
+
+        sum = 0.0;
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            weights[pidx] = biVariateIsotropicGaussianKernel(Eigen::Vector2d(result_x, result_y), Eigen::Vector2d(om.res->points[pidx].x, om.res->points[pidx].y), sigma_p);
+            sum += weights[pidx];
+        }
+
+        rr = randomUniform(0.0, sum);
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                result_z = om.res->points[pidx].z;
+                break;
+            }
+        }
+
+        d = std::normal_distribution<>(result_z, sigma_p);
+        result_z = d(gen);
+
+        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(result_x, result_y, result_z), 0, 0, 1, 1, 0.001, 0.001, 0.001, ob_name);
+    }
+    markers_pub.publish();
+    for (int i = 0; i < 100; i++) {
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
+
+    return 0;
+//*
+    // visualize the density pdf(p)
+    for (double x = -0.07; x < 0.07; x += 0.002) {
+        for (double y = -0.07; y < 0.07; y += 0.002) {
+            double sum = 0.0;
+            for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+                Eigen::Vector3d xx(x, y, 0.0);
+                Eigen::Vector3d xj(om.res->points[pidx].x, om.res->points[pidx].y, om.res->points[pidx].z);
+                sum += triVariateIsotropicGaussianKernel(xx, xj, 0.01);
+            }
+            sum /= om.res->points.size();
+            m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(x, y, 0.0), 0, 0, 1, 1, 0.005*sum, 0.005*sum, 0.005*sum, ob_name);
+        }
+    }
+    markers_pub.publish();
+    for (int i = 0; i < 100; i++) {
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
+
+    return 0;
+//*/
     for (int i = 0; i < 1000; i++) {
 
 
