@@ -299,6 +299,30 @@ public:
     }
 };
 
+int vonMisesFisherSample(const Eigen::Vector3d &mean, double pdf_mean, double sigma, double Cp, Eigen::Vector3d &x) {
+    for (int i = 0; i < 100000; i++) {
+        randomUnitSphere(x);
+        double pdf = misesFisherKernel(x, mean, sigma, Cp);
+        double rand_pdf = randomUniform(0.0, pdf_mean);
+        if (rand_pdf < pdf) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int vonMisesFisherSample(const Eigen::Vector4d &mean, double pdf_mean, double sigma, double Cp, Eigen::Vector4d &x) {
+    for (int i = 0; i < 100000; i++) {
+        randomUnitQuaternion(x);
+        double pdf = misesFisherKernel(x, mean, sigma, Cp);
+        double rand_pdf = randomUniform(0.0, pdf_mean);
+        if (rand_pdf < pdf) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 int main(int argc, char** argv) {
 
     srand ( time(NULL) );
@@ -683,9 +707,7 @@ int main(int argc, char** argv) {
             }
         }
     }
-
     markers_pub.publish();
-
     for (int i = 0; i < 100; i++) {
         ros::spinOnce();
         loop_rate.sleep();
@@ -695,17 +717,94 @@ int main(int argc, char** argv) {
     std::random_device rd;
     std::mt19937 gen(rd());
 
+/*
+    // TEST: rejection sampling from von Mises-Fisher distribution for 3-D sphere
+    Eigen::Vector3d mean;
+    randomUnitSphere(mean);
+    m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(mean(0)*0.1, mean(1)*0.1, mean(2)*0.1 + 1.0), 1, 0, 0, 1, 0.001, 0.001, 0.001, "world");
+
+    double Cp = misesFisherKernelConstant(50.0, 3);
+    double pdf_mean = misesFisherKernel(mean, mean, 50.0, Cp);
+
+    int samples = 0;
+    for (int i = 0; i < 1000; i++) {
+        Eigen::Vector3d x;
+        int iterations = vonMisesFisherSample(mean, pdf_mean, 50.0, Cp, x);
+        if (iterations < 0) {
+            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
+        }
+
+        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(x(0)*0.1, x(1)*0.1, x(2)*0.1 + 1.0), 0, 0, 1, 1, 0.001, 0.001, 0.001, "world");
+        samples += iterations;
+    }
+    std::cout << "samples: " << samples << std::endl;
+
+    markers_pub.publish();
+    for (int i = 0; i < 100; i++) {
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
+    return 0;
+//*/
+
+/*
+    // TEST: rejection sampling from von Mises-Fisher distribution for 4-D sphere
+    Eigen::Vector4d mean;
+    randomUnitQuaternion(mean);
+    KDL::Frame fr = KDL::Frame(KDL::Rotation::Quaternion(mean(0), mean(1), mean(2), mean(3)));
+    KDL::Vector of(0,0,1);
+    m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector() + of, fr * KDL::Vector(0.15, 0, 0) + of, 1, 0, 0, 1, 0.002, "world");
+    m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector() + of, fr * KDL::Vector(0, 0.15, 0) + of, 0, 1, 0, 1, 0.002, "world");
+    m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector() + of, fr * KDL::Vector(0, 0, 0.15) + of, 0, 0, 1, 1, 0.002, "world");
+
+    double sigma = 100.0;
+    double Cp = misesFisherKernelConstant(sigma, 4);
+    double pdf_mean = misesFisherKernel(mean, mean, sigma, Cp);
+
+    int samples = 0;
+    for (int i = 0; i < 1000; i++) {
+        Eigen::Vector4d x;
+        int iterations = vonMisesFisherSample(mean, pdf_mean, sigma, Cp, x);
+        if (iterations < 0) {
+            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
+        }
+
+        KDL::Frame fr = KDL::Frame(KDL::Rotation::Quaternion(x(0), x(1), x(2), x(3)));
+        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector() + of, fr * KDL::Vector(0.1, 0, 0) + of, 1, 0, 0, 1, 0.001, "world");
+        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector() + of, fr * KDL::Vector(0, 0.1, 0) + of, 0, 1, 0, 1, 0.001, "world");
+        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector() + of, fr * KDL::Vector(0, 0, 0.1) + of, 0, 0, 1, 1, 0.001, "world");
+        samples += iterations;
+    }
+    std::cout << "samples: " << samples << std::endl;
+
+    markers_pub.publish();
+    for (int i = 0; i < 100; i++) {
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
+    return 0;
+//*/
+
     std::vector<double > weights(om.res->points.size());
 
     const double sigma_p = 0.003;
+    const double sigma_q = 100.0;
+    const double sigma_r = 0.01;
+    double Cp = misesFisherKernelConstant(sigma_q, 4);
+
     std::cout << "generating random points..." << std::endl;
-    for (int i = 0; i < 10000; i++) {
+    for (int i = 0; i < 4000; i++) {
+        // sample the x coordinate
+        double sum = 0.0;
         for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
             weights[pidx] = 1.0 / static_cast<double >(om.res->points.size());
+            sum += weights[pidx];
         }
 
-        double rr = randomUniform(0.0, 1.0);
+        double rr = randomUniform(0.0, sum);
         double result_x, result_y, result_z;
+        Eigen::Vector4d result_q;
+        double result_pc1, result_pc2;
         for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
             rr -= weights[pidx];
             if (rr <= 0.0) {
@@ -714,11 +813,11 @@ int main(int argc, char** argv) {
             }
         }
 
-        
         std::normal_distribution<> d(result_x, sigma_p);
         result_x = d(gen);
 
-        double sum = 0.0;
+        // sample the y coordinate
+        sum = 0.0;
         for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
             weights[pidx] = uniVariateIsotropicGaussianKernel(result_x, om.res->points[pidx].x, sigma_p);
             sum += weights[pidx];
@@ -736,9 +835,11 @@ int main(int argc, char** argv) {
         d = std::normal_distribution<>(result_y, sigma_p);
         result_y = d(gen);
 
+        // sample the z coordinate
         sum = 0.0;
         for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
-            weights[pidx] = biVariateIsotropicGaussianKernel(Eigen::Vector2d(result_x, result_y), Eigen::Vector2d(om.res->points[pidx].x, om.res->points[pidx].y), sigma_p);
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_y, om.res->points[pidx].y, sigma_p);
+            //weights[pidx] = biVariateIsotropicGaussianKernel(Eigen::Vector2d(result_x, result_y), Eigen::Vector2d(om.res->points[pidx].x, om.res->points[pidx].y), sigma_p);
             sum += weights[pidx];
         }
 
@@ -754,7 +855,84 @@ int main(int argc, char** argv) {
         d = std::normal_distribution<>(result_z, sigma_p);
         result_z = d(gen);
 
-        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(result_x, result_y, result_z), 0, 0, 1, 1, 0.001, 0.001, 0.001, ob_name);
+        // sample the orientation
+        sum = 0.0;
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_z, om.res->points[pidx].z, sigma_p);
+            sum += weights[pidx];
+        }
+
+        rr = randomUniform(0.0, sum);
+        Eigen::Vector4d mean_q;
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                (*om.features_)[pidx].M.GetQuaternion(mean_q(0), mean_q(1), mean_q(2), mean_q(3));                
+                break;
+            }
+        }
+
+        double pdf_mean = misesFisherKernel(mean_q, mean_q, sigma_q, Cp);
+        int iterations = vonMisesFisherSample(mean_q, pdf_mean, sigma_q, Cp, result_q);
+        if (iterations < 0) {
+            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
+        }
+
+        // sample the pc1 feature
+        sum = 0.0;
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            Eigen::Vector4d q;
+            (*om.features_)[pidx].M.GetQuaternion(q(0), q(1), q(2), q(3));
+            weights[pidx] *= misesFisherKernel(result_q, q, sigma_q, Cp);
+            sum += weights[pidx];
+        }
+
+        rr = randomUniform(0.0, sum);
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                result_pc1 = om.principalCurvatures->points[pidx].pc1;
+                break;
+            }
+        }
+
+        d = std::normal_distribution<>(result_pc1, sigma_r);
+        result_pc1 = d(gen);
+
+        // sample the pc2 feature
+        sum = 0.0;
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_pc1, om.principalCurvatures->points[pidx].pc1, sigma_r);
+            sum += weights[pidx];
+        }
+
+        rr = randomUniform(0.0, sum);
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                result_pc2 = om.principalCurvatures->points[pidx].pc2;
+                break;
+            }
+        }
+
+        d = std::normal_distribution<>(result_pc2, sigma_r);
+        result_pc2 = d(gen);
+
+        sum = 0.0;
+        for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_pc2, om.principalCurvatures->points[pidx].pc2, sigma_r);
+            sum += weights[pidx];
+        }
+
+        // visualisation
+        KDL::Frame fr = KDL::Frame(KDL::Rotation::Quaternion(result_q(0), result_q(1), result_q(2), result_q(3)), KDL::Vector(result_x, result_y, result_z));
+
+//        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector(), fr * KDL::Vector(0.01, 0, 0), 1, 0, 0, 1, 0.0002, ob_name);
+//        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector(), fr * KDL::Vector(0, 0.01, 0), 0, 1, 0, 1, 0.0002, ob_name);
+//        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector(), fr * KDL::Vector(0, 0, 0.01), 0, 0, 1, 1, 0.0002, ob_name);
+//        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(result_x, result_y, result_z), result_pc1*4, 0, result_pc2*4, 1, 0.001, 0.001, 0.001, ob_name);
+        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(result_x, result_y, result_z), sum/10000000000.0, 0, 0, 1, 0.001, 0.001, 0.001, ob_name);
+        std::cout << sum << std::endl;
     }
     markers_pub.publish();
     for (int i = 0; i < 100; i++) {
