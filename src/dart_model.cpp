@@ -502,23 +502,33 @@ int main(int argc, char** argv) {
     const double sigma_r = 0.01;
 
     om.setSamplerParameters(sigma_p, sigma_q, sigma_r);
+    cm.setSamplerParameters(sigma_p, sigma_q, sigma_r);
 
     std::cout << "generating random points..." << std::endl;
     for (int i = 0; i < 4000; i++) {
-        Eigen::Vector3d p;
-        Eigen::Vector4d q;
+        Eigen::Vector3d p, p2;
+        Eigen::Vector4d q, q2;
         Eigen::Vector2d r;
         om.sample(p, q, r);
+        std::string link_name("right_HandFingerOneKnuckleThreeLink");
+        if (!cm.sampleForR(link_name, r, p2, q2)) {
+            std::cout << "ERROR: cm.sampleForR" << std::endl;
+        }
+        double weight = cm.getMarginalDensityForR(link_name, r)*0.001;
+        KDL::Frame T_O_F( KDL::Frame(KDL::Rotation::Quaternion(q(0), q(1), q(2), q(3)), KDL::Vector(p(0), p(1), p(2))) );
+        KDL::Frame T_L_F( KDL::Frame(KDL::Rotation::Quaternion(q2(0), q2(1), q2(2), q2(3)), KDL::Vector(p2(0), p2(1), p2(2))) );
+        KDL::Frame T_O_L = T_O_F * T_L_F.Inverse();
 
         // visualisation
-        KDL::Frame fr = KDL::Frame(KDL::Rotation::Quaternion(q(0), q(1), q(2), q(3)), KDL::Vector(p(0), p(1), p(2)));
+        KDL::Frame fr = T_O_L;//KDL::Frame(KDL::Rotation::Quaternion(q(0), q(1), q(2), q(3)), KDL::Vector(p(0), p(1), p(2)));
 
 //        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector(), fr * KDL::Vector(0.01, 0, 0), 1, 0, 0, 1, 0.0002, ob_name);
 //        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector(), fr * KDL::Vector(0, 0.01, 0), 0, 1, 0, 1, 0.0002, ob_name);
 //        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector(), fr * KDL::Vector(0, 0, 0.01), 0, 0, 1, 1, 0.0002, ob_name);
-        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(p(0), p(1), p(2)), r(0)*4, 0, r(1)*4, 1, 0.001, 0.001, 0.001, ob_name);
+//        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(p(0), p(1), p(2)), r(0)*4, 0, r(1)*4, 1, 0.001, 0.001, 0.001, ob_name);
+        m_id = markers_pub.addSinglePointMarkerCube(m_id, fr * KDL::Vector(), weight, weight, weight, 1, 0.001, 0.001, 0.001, ob_name);
 //        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(result_x, result_y, result_z), sum/10000000000.0, 0, 0, 1, 0.001, 0.001, 0.001, ob_name);
-//        std::cout << sum << std::endl;
+        std::cout << weight << std::endl;
     }
     markers_pub.publish();
     for (int i = 0; i < 100; i++) {

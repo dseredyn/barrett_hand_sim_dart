@@ -54,6 +54,11 @@
 
 static const double PI(3.141592653589793);
 
+    CollisionModel::CollisionModel() :
+        gen_(rd_())
+    {
+    }
+
     void CollisionModel::buildFeatureMaps() {
         for (std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.begin(); it != link_features_map.end(); it++) {
             const std::string &link_name = it->first;
@@ -106,6 +111,7 @@ static const double PI(3.141592653589793);
                         const pcl::PointCloud<pcl::PointNormal>::Ptr &ob_res, const pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr &ob_principalCurvatures,
                         const KDL::Frame &T_W_O, const boost::shared_ptr<std::vector<KDL::Frame > > &feature_frames) {
 
+        const double lambda = 40.0;
         std::list<std::pair<int, double> > link_pt;
 
         for (int poidx = 0; poidx < ob_res->points.size(); poidx++) {
@@ -130,9 +136,133 @@ static const double PI(3.141592653589793);
                 link_features_map[link_name][fidx].pc2 = ob_principalCurvatures->points[poidx].pc2;
                 KDL::Frame T_W_F = T_W_O * (*feature_frames)[poidx];
                 link_features_map[link_name][fidx].T_L_F = T_W_S.Inverse() * T_W_F;
-                link_features_map[link_name][fidx].dist = it->second / dist_range;
+                double dist = it->second;
+                link_features_map[link_name][fidx].dist = dist;
+                link_features_map[link_name][fidx].weight = std::exp(-lambda * dist * dist);
             }
         }
+    }
+
+    void CollisionModel::setSamplerParameters(double sigma_p, double sigma_q, double sigma_r) {
+        sigma_p_ = sigma_p;
+        sigma_q_ = sigma_q;
+        sigma_r_ = sigma_r;
+        Cp_ = misesFisherKernelConstant(sigma_q_, 4);
+    }
+
+    double CollisionModel::getMarginalDensityForR(const std::string &link_name, const Eigen::Vector2d &r) {
+        std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.find( link_name );
+        if (it == link_features_map.end()) {
+            return 0.0;
+        }
+        const std::vector<Feature > &features = it->second;
+
+        double sum = 0.0;
+        for (int pidx = 0; pidx < features.size(); pidx++) {
+            sum += features[pidx].weight * biVariateIsotropicGaussianKernel(r, Eigen::Vector2d(features[pidx].pc1, features[pidx].pc2), sigma_r_);
+        }
+        return sum;
+    }
+
+    bool CollisionModel::sampleForR(const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q) {
+        std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.find( link_name );
+        if (it == link_features_map.end()) {
+            return false;
+        }
+        const std::vector<Feature > &features = it->second;
+
+        const int n_points = features.size();
+        std::vector<double > weights(n_points, 0.0);
+
+        double result_x, result_y, result_z;
+        Eigen::Vector4d result_q;
+
+        // sample the x coordinate
+        double sum = 0.0;
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            weights[pidx] = features[pidx].weight * biVariateIsotropicGaussianKernel(r, Eigen::Vector2d(features[pidx].pc1, features[pidx].pc2), sigma_r_);
+            sum = weights[pidx];
+        }
+
+        double rr = randomUniform(0.0, sum);
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                result_x = features[pidx].T_L_F.p.x();
+                break;
+            }
+        }
+
+        std::normal_distribution<> d = std::normal_distribution<>(result_x, sigma_p_);
+        result_x = d(gen_);
+
+        // sample the y coordinate
+        sum = 0.0;
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            weights[pidx] = uniVariateIsotropicGaussianKernel(result_x, features[pidx].T_L_F.p.x(), sigma_p_);
+            sum *= weights[pidx];
+        }
+
+        rr = randomUniform(0.0, sum);
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                result_y = features[pidx].T_L_F.p.y();
+                break;
+            }
+        }
+
+        d = std::normal_distribution<>(result_y, sigma_p_);
+        result_y = d(gen_);
+
+        // sample the z coordinate
+        sum = 0.0;
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            weights[pidx] = uniVariateIsotropicGaussianKernel(result_y, features[pidx].T_L_F.p.y(), sigma_p_);
+            sum *= weights[pidx];
+        }
+
+        rr = randomUniform(0.0, sum);
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                result_z = features[pidx].T_L_F.p.z();
+                break;
+            }
+        }
+
+        d = std::normal_distribution<>(result_z, sigma_p_);
+        result_z = d(gen_);
+
+        // sample the orientation
+        sum = 0.0;
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_z, features[pidx].T_L_F.p.z(), sigma_p_);
+            sum += weights[pidx];
+        }
+
+        rr = randomUniform(0.0, sum);
+        Eigen::Vector4d mean_q;
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                features[pidx].T_L_F.M.GetQuaternion(mean_q(0), mean_q(1), mean_q(2), mean_q(3));                
+                break;
+            }
+        }
+
+        double pdf_mean = misesFisherKernel(mean_q, mean_q, sigma_q_, Cp_);
+        int iterations = vonMisesFisherSample(mean_q, pdf_mean, sigma_q_, Cp_, result_q);
+        if (iterations < 0) {
+            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
+        }
+
+        p(0) = result_x;
+        p(1) = result_y;
+        p(2) = result_z;
+        q = result_q;
+
+        return true;
     }
 
 /******************************************************************************************************************************/
@@ -227,7 +357,7 @@ static const double PI(3.141592653589793);
 
     void ObjectModel::sample(Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r) {
         const int n_points = res->points.size();
-        std::vector<double > weights(n_points);
+        std::vector<double > weights(n_points, 0.0);
 
         // sample the x coordinate
         double sum = 0.0;
@@ -352,12 +482,6 @@ static const double PI(3.141592653589793);
 
         d = std::normal_distribution<>(result_pc2, sigma_r_);
         result_pc2 = d(gen_);
-
-        sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_pc2, principalCurvatures->points[pidx].pc2, sigma_r_);
-            sum += weights[pidx];
-        }
 
         p(0) = result_x;
         p(1) = result_y;

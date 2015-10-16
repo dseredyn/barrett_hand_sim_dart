@@ -55,6 +55,7 @@ public:
     KDL::Frame T_L_F;
     double pc1, pc2;
     double dist;
+    double weight;
 };
 
 class CollisionModel {
@@ -67,6 +68,13 @@ public:
     std::map<std::string, KDL::Frame > frames_map_;
     std::map<std::pair<std::string, std::string>, std::list<KDL::Frame> > frames_rel_map_;
 
+    std::random_device rd_;
+    std::mt19937 gen_;
+
+    double sigma_p_, sigma_q_, sigma_r_, Cp_;
+
+    CollisionModel();
+
     void buildFeatureMaps();
 
     bool getRandomFeature(std::string &link_name, Feature &feature) const;
@@ -77,6 +85,12 @@ public:
                         const pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr &principalCurvatures, const KDL::Frame &T_W_S,
                         const pcl::PointCloud<pcl::PointNormal>::Ptr &ob_res, const pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr &ob_principalCurvatures,
                         const KDL::Frame &T_W_O, const boost::shared_ptr<std::vector<KDL::Frame > > &feature_frames);
+
+    void setSamplerParameters(double sigma_p, double sigma_q, double sigma_r);
+
+    double getMarginalDensityForR(const std::string &link_name, const Eigen::Vector2d &r);
+    bool sampleForR(const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q);
+
 };
 
 class ObjectModel {
@@ -85,10 +99,7 @@ public:
     pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures;
     boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > grid_;
     boost::shared_ptr<std::vector<KDL::Frame > > features_;
-    double sigma_p_;
-    double sigma_q_;
-    double sigma_r_;
-    double Cp_;
+    double sigma_p_, sigma_q_, sigma_r_, Cp_;
     std::random_device rd_;
     std::mt19937 gen_;
 
