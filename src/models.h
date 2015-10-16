@@ -67,6 +67,7 @@ public:
     std::map<std::string, double> joint_q_map_;
     std::map<std::string, KDL::Frame > frames_map_;
     std::map<std::pair<std::string, std::string>, std::list<KDL::Frame> > frames_rel_map_;
+    std::vector<std::string > col_link_names;
 
     std::random_device rd_;
     std::mt19937 gen_;
@@ -74,6 +75,8 @@ public:
     double sigma_p_, sigma_q_, sigma_r_, Cp_;
 
     CollisionModel();
+
+    const std::string& getRandomLinkName() const;
 
     void buildFeatureMaps();
 

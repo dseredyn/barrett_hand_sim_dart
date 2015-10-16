@@ -505,12 +505,19 @@ int main(int argc, char** argv) {
     cm.setSamplerParameters(sigma_p, sigma_q, sigma_r);
 
     std::cout << "generating random points..." << std::endl;
-    for (int i = 0; i < 4000; i++) {
+    for (int i = 0; i < 10000; i++) {
         Eigen::Vector3d p, p2;
         Eigen::Vector4d q, q2;
         Eigen::Vector2d r;
         om.sample(p, q, r);
-        std::string link_name("right_HandFingerOneKnuckleThreeLink");
+
+        int link_idx = -1;
+
+        do {
+            link_idx = rand() % cm.link_features_map.size();
+        } while(link_idx != -1);
+
+        std::string link_name( cm.getRandomLinkName() );
         if (!cm.sampleForR(link_name, r, p2, q2)) {
             std::cout << "ERROR: cm.sampleForR" << std::endl;
         }
@@ -528,7 +535,7 @@ int main(int argc, char** argv) {
 //        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(p(0), p(1), p(2)), r(0)*4, 0, r(1)*4, 1, 0.001, 0.001, 0.001, ob_name);
         m_id = markers_pub.addSinglePointMarkerCube(m_id, fr * KDL::Vector(), weight, weight, weight, 1, 0.001, 0.001, 0.001, ob_name);
 //        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(result_x, result_y, result_z), sum/10000000000.0, 0, 0, 1, 0.001, 0.001, 0.001, ob_name);
-        std::cout << weight << std::endl;
+//        std::cout << weight << std::endl;
     }
     markers_pub.publish();
     for (int i = 0; i < 100; i++) {

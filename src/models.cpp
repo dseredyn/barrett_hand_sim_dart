@@ -59,6 +59,11 @@ static const double PI(3.141592653589793);
     {
     }
 
+    const std::string &CollisionModel::getRandomLinkName() const {
+        int idx = rand() % col_link_names.size();
+        return col_link_names[idx];
+    }
+
     void CollisionModel::buildFeatureMaps() {
         for (std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.begin(); it != link_features_map.end(); it++) {
             const std::string &link_name = it->first;
@@ -129,6 +134,7 @@ static const double PI(3.141592653589793);
         }
         if ( link_pt.size() > 0 ) {
             link_features_map[link_name].resize( link_pt.size() );
+            col_link_names.push_back(link_name);
             int fidx = 0;
             for (std::list<std::pair<int, double> >::const_iterator it = link_pt.begin(); it != link_pt.end(); it++, fidx++) {
                 int poidx = it->first;
