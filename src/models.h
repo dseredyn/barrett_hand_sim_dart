@@ -94,7 +94,7 @@ public:
     void getTransform(const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) const;
 
     void addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
-                        const pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr &principalCurvatures, const KDL::Frame &T_W_S,
+                        const KDL::Frame &T_W_S,
                         const pcl::PointCloud<pcl::PointNormal>::Ptr &ob_res, const pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr &ob_principalCurvatures,
                         const KDL::Frame &T_W_O, const boost::shared_ptr<std::vector<KDL::Frame > > &feature_frames);
 
@@ -109,7 +109,6 @@ public:
     bool sampleQueryDensity(const std::string &link_name, KDL::Frame &T_O_L);
     double getQueryDensity(const std::string &link_name, const Eigen::Vector3d &p, const Eigen::Vector4d &q) const;
     double getQueryDensity(const std::string &link_name, const KDL::Frame &T_O_L) const;
-
 };
 
 class ObjectModel {

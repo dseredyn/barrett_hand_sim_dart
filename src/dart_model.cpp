@@ -230,6 +230,7 @@ int main(int argc, char** argv) {
                     const Eigen::Isometry3d &tf = sh->getLocalTransform();
                     KDL::Frame T_L_S;
                     EigenTfToKDL(tf, T_L_S);
+                    KDL::Frame T_S_L = T_L_S.Inverse();
 
                     const aiScene *sc = msh->getMesh();
                     if (sc->mNumMeshes != 1) {
@@ -239,6 +240,12 @@ int main(int argc, char** argv) {
 //                    std::cout << "v: " << sc->mMeshes[midx]->mNumVertices << "   f: " << sc->mMeshes[midx]->mNumFaces << std::endl;
                     pcl::PointCloud<pcl::PointNormal>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointNormal>);
                     uniform_sampling(sc->mMeshes[midx], 100000, *cloud_1);
+                    for (int pidx = 0; pidx < cloud_1->points.size(); pidx++) {
+                        KDL::Vector pt_L = T_L_S * KDL::Vector(cloud_1->points[pidx].x, cloud_1->points[pidx].y, cloud_1->points[pidx].z);
+                        cloud_1->points[pidx].x = pt_L.x();
+                        cloud_1->points[pidx].y = pt_L.y();
+                        cloud_1->points[pidx].z = pt_L.z();
+                    }
                     // Voxelgrid
                     boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > grid_(new pcl::VoxelGrid<pcl::PointNormal>);
                     pcl::PointCloud<pcl::PointNormal>::Ptr res(new pcl::PointCloud<pcl::PointNormal>);
@@ -248,7 +255,7 @@ int main(int argc, char** argv) {
                     grid_->setLeafSize(0.003, 0.003, 0.003);
                     grid_->filter (*res);
                     point_clouds_map[body_name] = res;
-                    frames_map[body_name] = T_W_L * T_L_S;
+                    frames_map[body_name] = T_W_L;// * T_L_S;
                     grids_map[body_name] = grid_;
 
                     std::cout << "res->points.size(): " << res->points.size() << std::endl;
@@ -366,7 +373,7 @@ int main(int argc, char** argv) {
         if (point_clouds_map.find( link_name ) == point_clouds_map.end()) {
             continue;
         }
-        cm.addLinkContacts(dist_range, link_name, point_clouds_map[link_name], point_pc_clouds_map[link_name], frames_map[link_name],
+        cm.addLinkContacts(dist_range, link_name, point_clouds_map[link_name], frames_map[link_name],
                             om.res, om.principalCurvatures, T_W_O, features_map[ob_name]);
     }
 
@@ -540,7 +547,7 @@ int main(int argc, char** argv) {
     const double sigma_p = 0.01;
     const double sigma_q = 100.0;
     const double sigma_r = 0.01;
-
+/*
     double f_max = uniVariateIsotropicGaussianKernel(0.0, 0.0, sigma_p);
     for (double x = 0; x < 10.0; x += 0.001) {
         double f = uniVariateIsotropicGaussianKernel(x, 0.0, sigma_p);
@@ -551,7 +558,7 @@ int main(int argc, char** argv) {
     }
 
     return 0;
-
+*/
     om.setSamplerParameters(sigma_p, sigma_q, sigma_r);
     cm.setSamplerParameters(sigma_p, sigma_q, sigma_r);
 
@@ -614,13 +621,22 @@ int main(int argc, char** argv) {
         loop_rate.sleep();
     }
 
+    for (int i = 0; i < 100; i++) {
+        int idx = rand() % qd_vec.size();
+        KDL::Frame T_O_L(KDL::Rotation::Quaternion(qd_vec[idx].q_(0), qd_vec[idx].q_(1), qd_vec[idx].q_(2), qd_vec[idx].q_(3)), KDL::Vector(qd_vec[idx].p_(0), qd_vec[idx].p_(1), qd_vec[idx].p_(2)));
+        publishTransform(br, T_W_O * T_O_L, link_name_test, "world");
+        std::cout << qd_vec[idx].weight_ << std::endl;
+        ros::spinOnce();
+        ros::Duration(2.0).sleep();
+    }
+
     return 0;
 //*/
 
     double cost_max = 0.0;
     KDL::Frame T_W_E_best;
     std::map<std::string, double> q_best;
-    for (int  i = 0; i < 10000; i++) {
+    for (int  i = 0; i < 40000; i++) {
         const std::string &link_name = cm.getRandomLinkNameCol();
         KDL::Frame T_O_L1;
         cm.sampleQueryDensity(link_name, T_O_L1);
@@ -644,7 +660,9 @@ int main(int argc, char** argv) {
             q_best = q_sample;
         }
 
-        std::cout << i << "   " << cost << std::endl;
+        if ((i % 1000) == 0) {
+            std::cout << i << "   " << cost << std::endl;
+        }
     }
 
     std::cout << "best: " << cost_max << std::endl;
