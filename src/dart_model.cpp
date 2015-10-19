@@ -349,10 +349,13 @@ int main(int argc, char** argv) {
     // generate object model
     const std::string &ob_name = domino->getRootBodyNode()->getName();
     ObjectModel om;
-    om.res = point_clouds_map[ob_name];
-    om.principalCurvatures = point_pc_clouds_map[ob_name];
-    om.grid_ = grids_map[ob_name];
-    om.features_ = features_map[ob_name];
+
+    for (int pidx = 0; pidx < point_clouds_map[ob_name]->points.size(); pidx++) {
+        om.addPointFeature((*features_map[ob_name])[pidx], point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
+    }
+//    om.res = point_clouds_map[ob_name];
+//    om.principalCurvatures = point_pc_clouds_map[ob_name];
+//    om.features_ = features_map[ob_name];
     T_W_O = frames_map[ob_name];
 
     // generate collision model
@@ -374,7 +377,7 @@ int main(int argc, char** argv) {
             continue;
         }
         cm.addLinkContacts(dist_range, link_name, point_clouds_map[link_name], frames_map[link_name],
-                            om.res, om.principalCurvatures, T_W_O, features_map[ob_name]);
+                            om.getPointFeatures(), T_W_O);
     }
 
     cm.buildFeatureMaps();
@@ -542,7 +545,7 @@ int main(int argc, char** argv) {
     return 0;
 //*/
 
-    std::vector<double > weights(om.res->points.size());
+    std::vector<double > weights(om.getPointFeatures().size());
 
     const double sigma_p = 0.01;
     const double sigma_q = 100.0;
@@ -714,7 +717,7 @@ int main(int argc, char** argv) {
     }
 
     return 0;
-//*
+/*
     // visualize the density pdf(p)
     for (double x = -0.07; x < 0.07; x += 0.002) {
         for (double y = -0.07; y < 0.07; y += 0.002) {

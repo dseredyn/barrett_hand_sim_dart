@@ -43,23 +43,57 @@
 #include "planer_utils/utilities.h"
 
 #include <pcl/common/transforms.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/filters/voxel_grid_covariance.h>
 #include <pcl/point_types.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/common/pca.h>
 #include <pcl/features/principal_curvatures.h>
 
-class Feature {
+class ObjectModel {
 public:
-    KDL::Frame T_L_F;
-    double pc1, pc2;
-    double dist;
-    double weight;
+    class Feature {
+    public:
+        Feature(const KDL::Frame &T_O_F, double pc1, double pc2);
+
+        KDL::Frame T_O_F_;
+        double pc1_, pc2_;
+    };
+
+protected:
+    std::vector<Feature > fv_;
+    double p_dist_max_, r_dist_max_;
+    double sigma_p_, sigma_q_, sigma_r_, Cp_;
+    std::random_device rd_;
+    std::mt19937 gen_;
+
+public:
+
+    ObjectModel();
+
+    void randomizeSurface();
+
+    void setSamplerParameters(double sigma_p, double sigma_q, double sigma_r);
+
+    void sample(Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r);
+
+    void addPointFeature(const KDL::Frame &T_O_F, double pc1, double pc2);
+
+    const std::vector<Feature >& getPointFeatures() const;
 };
 
 class CollisionModel {
+protected:
+    class Feature {
+    public:
+        KDL::Frame T_L_F;
+        double pc1, pc2;
+        double dist;
+        double weight;
+    };
+
+    double p_dist_max_, r_dist_max_;
+
 public:
+
     class QueryDensityElement {
     public:
         Eigen::Vector3d p_;
@@ -92,9 +126,8 @@ public:
     void getTransform(const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) const;
 
     void addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
-                        const KDL::Frame &T_W_S,
-                        const pcl::PointCloud<pcl::PointNormal>::Ptr &ob_res, const pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr &ob_principalCurvatures,
-                        const KDL::Frame &T_W_O, const boost::shared_ptr<std::vector<KDL::Frame > > &feature_frames);
+                        const KDL::Frame &T_W_L, const std::vector<ObjectModel::Feature > &ob_features,
+                        const KDL::Frame &T_W_O);
 
     void addQueryDensity(const std::string &link_name, const std::vector<QueryDensityElement > &qd_vec);
 
@@ -107,25 +140,6 @@ public:
     bool sampleQueryDensity(const std::string &link_name, KDL::Frame &T_O_L);
     double getQueryDensity(const std::string &link_name, const Eigen::Vector3d &p, const Eigen::Vector4d &q) const;
     double getQueryDensity(const std::string &link_name, const KDL::Frame &T_O_L) const;
-};
-
-class ObjectModel {
-public:
-    pcl::PointCloud<pcl::PointNormal>::Ptr res;
-    pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures;
-    boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > grid_;
-    boost::shared_ptr<std::vector<KDL::Frame > > features_;
-    double sigma_p_, sigma_q_, sigma_r_, Cp_;
-    std::random_device rd_;
-    std::mt19937 gen_;
-
-    ObjectModel();
-
-    void randomizeSurface();
-
-    void setSamplerParameters(double sigma_p, double sigma_q, double sigma_r);
-
-    void sample(Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r);
 };
 
 class HandConfigurationModel {
