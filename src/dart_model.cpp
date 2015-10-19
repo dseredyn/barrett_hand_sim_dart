@@ -65,6 +65,17 @@
 
 const double PI(3.141592653589793);
 
+double getTransitionProbability(double cost1, double cost2, double temperature) {
+    if (std::fabs(cost2) < 0.0000001) {
+        return 0.0;
+    }
+    if (cost2 > cost1) {
+        return 1.0;
+    }
+    
+    return temperature / 100.0 * 0.3;
+}
+
 void getFK(const dart::dynamics::SkeletonPtr &bh, const std::map<std::string, double> &q_map, const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) {
     std::map<std::string, double> saved_q_map;
     for (std::map<std::string, double>::const_iterator it = q_map.begin(); it != q_map.end(); it++) {
@@ -591,7 +602,7 @@ int main(int argc, char** argv) {
 
     std::vector<double > weights(om.getPointFeatures().size());
 
-    const double sigma_p = 0.005;
+    const double sigma_p = 0.01;
     const double sigma_q = 100.0;
     const double sigma_r = 0.02;
 
@@ -659,15 +670,21 @@ int main(int argc, char** argv) {
     double cost_max = 0.0;
     KDL::Frame T_W_E_best;
     std::map<std::string, double> q_best;
-    for (int  i = 0; i < 20000; i++) {
+    for (int  i = 0; i < 4000; i++) {
         const std::string &link_name = cm.getRandomLinkNameCol();
         KDL::Frame T_O_L1;
         cm.sampleQueryDensity(gen(), link_name, T_O_L1);
         const std::map<std::string, double>& q_sample = hm.sample();
 
         double cost = cm.getQueryDensity(link_name, T_O_L1);
-
         for (std::vector<std::string >::const_iterator lit = cm.getLinkNamesCol().begin(); lit != cm.getLinkNamesCol().end(); lit++) {
+            if (cost < 0.0000001) {
+                cost = 0.0;
+                break;
+            }
+            if (link_name == (*lit)) {
+                continue;
+            }
             KDL::Frame T_L1_L2;
             getFK(bh, q_sample, link_name, (*lit), T_L1_L2);
             KDL::Frame T_O_L2( T_O_L1 * T_L1_L2 );
@@ -690,17 +707,19 @@ int main(int argc, char** argv) {
 
     std::cout << "best: " << cost_max << std::endl;
 
-    // Position its base in a reasonable way
-    KDLToEigenTf(T_W_E_best, tf);
-    bh->getJoint(0)->setTransformFromParentBodyNode(tf);
-
-    for (std::map<std::string, double>::const_iterator it = q_best.begin(); it != q_best.end(); it++) {
-        dart::dynamics::Joint *j = bh->getJoint( it-> first );
-        j->setPosition( 0, it->second );
-    }
+    double temperature = 100.0;
 
     // visualisation
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 100000; i++) {
+
+        // Position its base in a reasonable way
+        KDLToEigenTf(T_W_E_best, tf);
+        bh->getJoint(0)->setTransformFromParentBodyNode(tf);
+        for (std::map<std::string, double>::const_iterator it = q_best.begin(); it != q_best.end(); it++) {
+            dart::dynamics::Joint *j = bh->getJoint( it-> first );
+            j->setPosition( 0, it->second );
+        }
+
         for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
             dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
             const Eigen::Isometry3d &tf = b->getTransform();
@@ -734,6 +753,65 @@ int main(int argc, char** argv) {
         markers_pub.publish();
         ros::spinOnce();
         loop_rate.sleep();
+        ros::Duration(0.02).sleep();
+        if (!ros::ok()) {
+            break;
+        }
+
+        Eigen::Vector4d qq, qq_res;
+        T_W_E_best.M.GetQuaternion(qq(0), qq(1), qq(2), qq(3));
+
+        Eigen::Vector3d axis;
+        randomUnitSphere(axis);
+        std::normal_distribution<> d = std::normal_distribution<>(0, 0.5/180.0*PI);
+        KDL::Rotation rot( T_W_E_best.M * KDL::Rotation::Rot(KDL::Vector(axis(0), axis(1), axis(2)), d(gen)) );
+//        double sigma_q2 = 100.0;
+//        double Cp = misesFisherKernelConstant(sigma_q2, 4);
+//        double pdf_mean = misesFisherKernel(qq, qq, sigma_q2, Cp);
+//        vonMisesFisherSample(qq, pdf_mean, sigma_q2, Cp, qq_res);
+        d = std::normal_distribution<>(0, 0.002);
+//        KDL::Frame T_W_E_new( KDL::Rotation::Quaternion(qq_res(0), qq_res(1), qq_res(2), qq_res(3)), T_W_E_best.p + KDL::Vector(d(gen), d(gen), d(gen)));
+        KDL::Frame T_W_E_new( rot, T_W_E_best.p + KDL::Vector(d(gen), d(gen), d(gen)));
+
+        d = std::normal_distribution<>(0, 2.0/180.0*PI);
+        std::map<std::string, double> q_new( q_best );
+//        const std::map<std::string, double>& q_new = hm.sample();
+        double angleDiffF1 = d(gen);
+        double angleDiffF2 = d(gen);
+        double angleDiffF3 = d(gen);
+        q_new["right_HandFingerOneKnuckleTwoJoint"] -= angleDiffF1;
+        q_new["right_HandFingerTwoKnuckleTwoJoint"] -= angleDiffF2;
+        q_new["right_HandFingerThreeKnuckleTwoJoint"] -= angleDiffF3;
+        q_new["right_HandFingerOneKnuckleThreeJoint"] -= angleDiffF1*0.333333;
+        q_new["right_HandFingerTwoKnuckleThreeJoint"] -= angleDiffF2*0.333333;
+        q_new["right_HandFingerThreeKnuckleThreeJoint"] -= angleDiffF3*0.333333;
+        for (std::map<std::string, double>::iterator it = q_new.begin(); it != q_new.end(); it++) {
+            dart::dynamics::Joint *j = bh->getJoint( it-> first );
+            it->second = std::max( j->getPositionLowerLimit( 0 ), it->second );
+            it->second = std::min( j->getPositionUpperLimit( 0 ), it->second );
+        }
+
+        double cost = 1.0;
+        for (std::vector<std::string >::const_iterator lit = cm.getLinkNamesCol().begin(); lit != cm.getLinkNamesCol().end(); lit++) {
+            if (cost < 0.0000001) {
+                cost = 0.0;
+                break;
+            }
+            KDL::Frame T_E_L;
+            getFK(bh, q_new, "right_HandPalmLink", (*lit), T_E_L);
+            KDL::Frame T_O_L( T_W_O.Inverse() * T_W_E_new * T_E_L );
+            cost *= cm.getQueryDensity((*lit), T_O_L);
+        }
+        double trPr = getTransitionProbability(cost_max, cost, temperature);
+        std::cout << "temp: " << temperature << "   cost: " << cost_max << "   cost_new: " << cost << "   trPr: " << trPr << std::endl;
+
+        if (randomUniform(0.0, 1.0) < trPr) {
+            T_W_E_best = T_W_E_new;
+            cost_max = cost;
+            q_best = q_new;
+        }
+        temperature -= 0.02;
+
     }
 
     return 0;
