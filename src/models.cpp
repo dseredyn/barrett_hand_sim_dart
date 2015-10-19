@@ -59,9 +59,13 @@ static const double PI(3.141592653589793);
     {
     }
 
-    const std::string &CollisionModel::getRandomLinkName() const {
+    const std::string &CollisionModel::getRandomLinkNameCol() const {
         int idx = rand() % col_link_names.size();
         return col_link_names[idx];
+    }
+
+    const std::vector<std::string >& CollisionModel::getLinkNamesCol() const {
+        return col_link_names;
     }
 
     void CollisionModel::buildFeatureMaps() {
@@ -149,6 +153,10 @@ static const double PI(3.141592653589793);
         }
     }
 
+    void CollisionModel::addQueryDensity(const std::string &link_name, const std::vector<QueryDensityElement > &qd_vec) {
+        qd_map_[link_name] = qd_vec;
+    }
+
     void CollisionModel::setSamplerParameters(double sigma_p, double sigma_q, double sigma_r) {
         sigma_p_ = sigma_p;
         sigma_q_ = sigma_q;
@@ -205,8 +213,8 @@ static const double PI(3.141592653589793);
         // sample the y coordinate
         sum = 0.0;
         for (int pidx = 0; pidx < n_points; pidx++) {
-            weights[pidx] = uniVariateIsotropicGaussianKernel(result_x, features[pidx].T_L_F.p.x(), sigma_p_);
-            sum *= weights[pidx];
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_x, features[pidx].T_L_F.p.x(), sigma_p_);
+            sum += weights[pidx];
         }
 
         rr = randomUniform(0.0, sum);
@@ -224,8 +232,8 @@ static const double PI(3.141592653589793);
         // sample the z coordinate
         sum = 0.0;
         for (int pidx = 0; pidx < n_points; pidx++) {
-            weights[pidx] = uniVariateIsotropicGaussianKernel(result_y, features[pidx].T_L_F.p.y(), sigma_p_);
-            sum *= weights[pidx];
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_y, features[pidx].T_L_F.p.y(), sigma_p_);
+            sum += weights[pidx];
         }
 
         rr = randomUniform(0.0, sum);
@@ -269,6 +277,142 @@ static const double PI(3.141592653589793);
         q = result_q;
 
         return true;
+    }
+
+    bool CollisionModel::sampleQueryDensity(const std::string &link_name, Eigen::Vector3d &p, Eigen::Vector4d &q) {
+        std::map<std::string, std::vector<QueryDensityElement > >::const_iterator it = qd_map_.find( link_name );
+        if (it == qd_map_.end()) {
+            return false;
+        }
+        const std::vector<QueryDensityElement > &qd = it->second;
+
+        const int n_points = qd.size();
+        std::vector<double > weights(n_points, 0.0);
+
+        double result_x, result_y, result_z;
+        Eigen::Vector4d result_q;
+
+        // sample the x coordinate
+        double sum = 0.0;
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            weights[pidx] = qd[pidx].weight_;//1.0 / static_cast<double>(n_points);
+            sum = weights[pidx];
+        }
+
+        double rr = randomUniform(0.0, sum);
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                result_x = qd[pidx].p_(0);
+                break;
+            }
+        }
+
+        std::normal_distribution<> d = std::normal_distribution<>(result_x, sigma_p_);
+        result_x = d(gen_);
+
+        // sample the y coordinate
+        sum = 0.0;
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_x, qd[pidx].p_(0), sigma_p_);
+            sum += weights[pidx];
+        }
+
+        rr = randomUniform(0.0, sum);
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                result_y = qd[pidx].p_(1);
+                break;
+            }
+        }
+
+        d = std::normal_distribution<>(result_y, sigma_p_);
+        result_y = d(gen_);
+
+        // sample the z coordinate
+        sum = 0.0;
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_y, qd[pidx].p_(1), sigma_p_);
+            sum += weights[pidx];
+        }
+
+        rr = randomUniform(0.0, sum);
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                result_z = qd[pidx].p_(2);
+                break;
+            }
+        }
+
+        d = std::normal_distribution<>(result_z, sigma_p_);
+        result_z = d(gen_);
+
+        // sample the orientation
+        sum = 0.0;
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_z, qd[pidx].p_(2), sigma_p_);
+            sum += weights[pidx];
+        }
+
+        rr = randomUniform(0.0, sum);
+        Eigen::Vector4d mean_q;
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                mean_q = qd[pidx].q_;
+                break;
+            }
+        }
+
+        double pdf_mean = misesFisherKernel(mean_q, mean_q, sigma_q_, Cp_);
+        int iterations = vonMisesFisherSample(mean_q, pdf_mean, sigma_q_, Cp_, result_q);
+        if (iterations < 0) {
+            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
+        }
+
+        p(0) = result_x;
+        p(1) = result_y;
+        p(2) = result_z;
+        q = result_q;
+
+        return true;
+    }
+
+    bool CollisionModel::sampleQueryDensity(const std::string &link_name, KDL::Frame &T_O_L) {
+        Eigen::Vector3d p;
+        Eigen::Vector4d q;
+        bool result = sampleQueryDensity(link_name, p, q);
+        T_O_L = KDL::Frame(KDL::Rotation::Quaternion(q(0), q(1), q(2), q(3)), KDL::Vector(p(0), p(1), p(2)));
+        return result;
+    }
+
+    double CollisionModel::getQueryDensity(const std::string &link_name, const Eigen::Vector3d &p, const Eigen::Vector4d &q) const {
+        std::map<std::string, std::vector<QueryDensityElement > >::const_iterator it = qd_map_.find( link_name );
+        if (it == qd_map_.end()) {
+            return 0.0;
+        }
+        const std::vector<QueryDensityElement > &qd = it->second;
+
+        const int n_points = qd.size();
+
+        double sum = 0.0;
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            sum += qd[pidx].weight_ *
+                triVariateIsotropicGaussianKernel(p, qd[pidx].p_, sigma_p_) *
+//                uniVariateIsotropicGaussianKernel(p(1), qd[pidx].p_(1), sigma_p_) *
+//                uniVariateIsotropicGaussianKernel(p(2), qd[pidx].p_(1), sigma_p_) *
+                misesFisherKernel(qd[pidx].q_, qd[pidx].q_, sigma_q_, Cp_);
+        }
+
+        return sum;
+    }
+
+    double CollisionModel::getQueryDensity(const std::string &link_name, const KDL::Frame &T_O_L) const {
+        double qx, qy, qz, qw;
+        T_O_L.M.GetQuaternion(qx, qy, qz, qw);
+        return getQueryDensity(link_name, Eigen::Vector3d(T_O_L.p.x(), T_O_L.p.y(), T_O_L.p.z()), Eigen::Vector4d(qx, qy, qz, qw));
     }
 
 /******************************************************************************************************************************/
@@ -390,7 +534,7 @@ static const double PI(3.141592653589793);
         // sample the y coordinate
         sum = 0.0;
         for (int pidx = 0; pidx < n_points; pidx++) {
-            weights[pidx] = uniVariateIsotropicGaussianKernel(result_x, res->points[pidx].x, sigma_p_);
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_x, res->points[pidx].x, sigma_p_);
             sum += weights[pidx];
         }
 
@@ -496,4 +640,65 @@ static const double PI(3.141592653589793);
         r(0) = result_pc1;
         r(1) = result_pc2;
     }
+
+/******************************************************************************************************************/
+
+HandConfigurationModel::HandConfigurationModel() :
+    gen_(rd_())
+{
+}
+
+void HandConfigurationModel::generateModel(const std::map<std::string, double> &q_map_before, const std::map<std::string, double> &q_map_grasp, double beta, int n_samples, double sigma_c) {
+    int idx = 0;
+    qb_.resize( q_map_before.size() );
+    qg_.resize( q_map_before.size() );
+    joint_names_.resize( q_map_before.size() );
+    for (std::map<std::string, double>::const_iterator it = q_map_before.begin(); it != q_map_before.end(); it++, idx++) {
+        qb_(idx) = it->second;
+        joint_names_[idx] = it->first;
+
+        std::map<std::string, double>::const_iterator it_g = q_map_grasp.find(it->first);
+        if (it_g == q_map_grasp.end()) {
+            std::cout << "ERROR: HandConfigurationModel::generateModel: joint name " << it->first << " not in q_map_grasp" << std::endl;
+        }
+        qg_(idx) = it_g->second;
+    }
+
+    samples_.resize(n_samples);
+    for (int i = 0; i < n_samples; i++) {
+        double f = static_cast<double >(i) / static_cast<double >(n_samples-1);
+        samples_[i] = (-beta) * (1.0 - f) + beta * f;
+    }
+
+    sigma_c_ = sigma_c;
+}
+
+const std::map<std::string, double>& HandConfigurationModel::sample() {
+    const int n_samples = samples_.size();
+    std::vector<double > weights(n_samples, 0.0);
+
+    double sum = 0.0;
+    for (int pidx = 0; pidx < n_samples; pidx++) {
+        weights[pidx] = 1.0 / static_cast<double >(n_samples);
+        sum += weights[pidx];
+    }
+
+    double rr = randomUniform(0.0, sum);
+    double result_gamma;
+    for (int pidx = 0; pidx < n_samples; pidx++) {
+        rr -= weights[pidx];
+        if (rr <= 0.0) {
+            result_gamma = samples_[pidx];
+            break;
+        }
+    }
+
+    std::normal_distribution<> d(result_gamma, sigma_c_);
+    result_gamma = d(gen_);
+
+    for (int qidx = 0; qidx < joint_names_.size(); qidx++) {
+        q_ret_[joint_names_[qidx]] = (1.0 - result_gamma) * qg_(qidx) + result_gamma * qb_(qidx);
+    }
+    return q_ret_;
+}
 

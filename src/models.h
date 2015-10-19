@@ -60,6 +60,12 @@ public:
 
 class CollisionModel {
 public:
+    class QueryDensityElement {
+    public:
+        Eigen::Vector3d p_;
+        Eigen::Vector4d q_;
+        double weight_;
+    };
     std::map<std::string, std::vector<Feature > > link_features_map;
     std::map<std::string, std::vector<Feature > > link_features_map_edge;
     std::map<std::string, std::vector<Feature > > link_features_map_sym;
@@ -68,6 +74,7 @@ public:
     std::map<std::string, KDL::Frame > frames_map_;
     std::map<std::pair<std::string, std::string>, std::list<KDL::Frame> > frames_rel_map_;
     std::vector<std::string > col_link_names;
+    std::map<std::string, std::vector<QueryDensityElement > > qd_map_;
 
     std::random_device rd_;
     std::mt19937 gen_;
@@ -76,7 +83,9 @@ public:
 
     CollisionModel();
 
-    const std::string& getRandomLinkName() const;
+    const std::string& getRandomLinkNameCol() const;
+
+    const std::vector<std::string >& getLinkNamesCol() const;
 
     void buildFeatureMaps();
 
@@ -89,10 +98,17 @@ public:
                         const pcl::PointCloud<pcl::PointNormal>::Ptr &ob_res, const pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr &ob_principalCurvatures,
                         const KDL::Frame &T_W_O, const boost::shared_ptr<std::vector<KDL::Frame > > &feature_frames);
 
+    void addQueryDensity(const std::string &link_name, const std::vector<QueryDensityElement > &qd_vec);
+
     void setSamplerParameters(double sigma_p, double sigma_q, double sigma_r);
 
     double getMarginalDensityForR(const std::string &link_name, const Eigen::Vector2d &r);
     bool sampleForR(const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q);
+
+    bool sampleQueryDensity(const std::string &link_name, Eigen::Vector3d &p, Eigen::Vector4d &q);
+    bool sampleQueryDensity(const std::string &link_name, KDL::Frame &T_O_L);
+    double getQueryDensity(const std::string &link_name, const Eigen::Vector3d &p, const Eigen::Vector4d &q) const;
+    double getQueryDensity(const std::string &link_name, const KDL::Frame &T_O_L) const;
 
 };
 
@@ -117,5 +133,20 @@ public:
     void setSamplerParameters(double sigma_p, double sigma_q, double sigma_r);
 
     void sample(Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r);
+};
+
+class HandConfigurationModel {
+protected:
+    Eigen::VectorXd qb_, qg_;
+    std::vector<std::string > joint_names_;
+    std::map<std::string, double> q_ret_;
+    std::vector<double > samples_;
+    std::random_device rd_;
+    std::mt19937 gen_;
+    double sigma_c_;
+public:
+    HandConfigurationModel();
+    void generateModel(const std::map<std::string, double> &q_map_before, const std::map<std::string, double> &q_map_grasp, double beta, int n_samples, double sigma_c);
+    const std::map<std::string, double>& sample();
 };
 
