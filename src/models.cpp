@@ -87,26 +87,6 @@ static const double PI(3.141592653589793);
         }
     }
 
-    bool CollisionModel::getRandomFeature(std::string &link_name, Feature &feature) const {
-        int features_count = 0;
-        for (std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.begin(); it != link_features_map.end(); it++) {
-            features_count += it->second.size();
-        }
-        int feature_idx = rand() % features_count;
-        for (std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.begin(); it != link_features_map.end(); it++) {
-            if (feature_idx < it->second.size()) {
-                feature = it->second[feature_idx];
-                link_name = it->first;
-                return true;
-            }
-            else {
-                feature_idx -= it->second.size();
-            }
-        }
-        std::cout << "ERROR: getRandomFeature" << std::endl;
-        return false;
-    }
-
     void CollisionModel::getTransform(const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) const {
         std::map<std::string, KDL::Frame >::const_iterator it1( frames_map_.find(link1_name) );
         std::map<std::string, KDL::Frame >::const_iterator it2( frames_map_.find(link2_name) );
@@ -437,65 +417,6 @@ static const double PI(3.141592653589793);
                 (*features_)[idx] = (*features_)[idx] * KDL::Frame(KDL::Rotation::RotZ(randomUniform(-PI, PI)));
             }
         }
-    }
-
-    int ObjectModel::getRandomIndex(double pc1, double pc2, double tolerance1, double tolerance2) const {
-        std::vector<int > indices(principalCurvatures->points.size());
-        int indices_count = 0;
-        int idx = 0;
-        for (pcl::PointCloud<pcl::PrincipalCurvatures>::const_iterator it = principalCurvatures->begin(); it != principalCurvatures->end(); it++, idx++) {
-            if (std::fabs(it->pc1-pc1) < tolerance1 && std::fabs(it->pc2-pc2) < tolerance2) {
-                indices[indices_count] = idx;
-                indices_count++;
-            }
-        }
-        if (indices_count == 0) {
-            return -1;
-        }
-        return indices[(rand() % indices_count)];
-    }
-
-    bool ObjectModel::findFeature(double pc1, double pc2, double tolerance1, double tolerance2, const KDL::Frame &f, double radius, double tolerance4) const {
-        pcl::PointNormal p;
-        p.x = f.p.x();
-        p.y = f.p.y();
-        p.z = f.p.z();
-
-        Eigen::Vector3f size = grid_->getLeafSize();
-        Eigen::Vector3i min = grid_->getMinBoxCoordinates();
-        Eigen::Vector3i max = grid_->getMaxBoxCoordinates();
-        Eigen::Vector3i centre = grid_->getGridCoordinates(f.p.x(), f.p.y(), f.p.z());
-        for (int i = 0; i < 3; i++) {
-            int size_i = std::ceil(radius / size(i) );
-            min(i) = std::max(centre(i)-size_i, min(i));
-            max(i) = std::min(centre(i)+size_i, max(i));
-        }
-
-        for (int ix = min(0); ix <= max(0); ix++) {
-            for (int iy = min(1); iy <= max(1); iy++) {
-                for (int iz = min(2); iz <= max(2); iz++) {
-                    int idx = grid_->getCentroidIndexAt(Eigen::Vector3i(ix, iy, iz));
-                    if (std::fabs(principalCurvatures->points[idx].pc1-pc1) < tolerance1 && std::fabs(principalCurvatures->points[idx].pc2-pc2) < tolerance2) {
-                        const KDL::Rotation &iM = (*features_)[idx].M;
-                        double angle = 0.0;
-                        if (pc1 > 1.1 * pc2) {
-                            // e.g. pc1=1, pc2=0
-                            // edge
-                            KDL::Vector dM1 = KDL::diff(f.M, iM, 1.0);
-                            KDL::Vector dM2 = KDL::diff(f.M * KDL::Rotation::RotZ(PI), iM, 1.0);
-                            angle = std::min(dM1.Norm(), dM2.Norm());
-                        }
-                        else {
-                            angle = getAngle(iM * KDL::Vector(0,0,1), f.M * KDL::Vector(0,0,1));
-                        }
-                        if (angle < tolerance4) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        return false;
     }
 
     void ObjectModel::setSamplerParameters(double sigma_p, double sigma_q, double sigma_r) {

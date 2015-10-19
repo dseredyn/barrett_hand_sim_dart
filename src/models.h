@@ -89,8 +89,6 @@ public:
 
     void buildFeatureMaps();
 
-    bool getRandomFeature(std::string &link_name, Feature &feature) const;
-
     void getTransform(const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) const;
 
     void addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
@@ -124,10 +122,6 @@ public:
     ObjectModel();
 
     void randomizeSurface();
-
-    int getRandomIndex(double pc1, double pc2, double tolerance1, double tolerance2) const;
-
-    bool findFeature(double pc1, double pc2, double tolerance1, double tolerance2, const KDL::Frame &f, double radius, double tolerance4) const;
 
     void setSamplerParameters(double sigma_p, double sigma_q, double sigma_r);
 
