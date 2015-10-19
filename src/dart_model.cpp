@@ -40,6 +40,8 @@
 #include <stdio.h>
 #include <time.h>
 
+#include <thread>
+
 #include "Eigen/Dense"
 
 #include <kdl/frames.hpp>
@@ -87,6 +89,36 @@ void getFK(const dart::dynamics::SkeletonPtr &bh, const std::map<std::string, do
         dart::dynamics::Joint *j = bh->getJoint( it-> first );
         j->setPosition( 0, it->second );
     }
+}
+
+void generateQueryDensity(int seed, const std::string &link_name, const CollisionModel &cm, const ObjectModel &om,
+                            std::vector<CollisionModel::QueryDensityElement > &qd_vec) {
+        double sum_weights = 0.0;
+        for (int i = 0; i < qd_vec.size(); i++) {
+            Eigen::Vector3d p, p2;
+            Eigen::Vector4d q, q2;
+            Eigen::Vector2d r;
+            om.sample(seed, p, q, r);
+
+            if (!cm.sampleForR(seed, link_name, r, p2, q2)) {
+                std::cout << "ERROR: cm.sampleForR" << std::endl;
+            }
+            double weight = cm.getMarginalDensityForR(link_name, r);
+            KDL::Frame T_O_F( KDL::Frame(KDL::Rotation::Quaternion(q(0), q(1), q(2), q(3)), KDL::Vector(p(0), p(1), p(2))) );
+            KDL::Frame T_L_F( KDL::Frame(KDL::Rotation::Quaternion(q2(0), q2(1), q2(2), q2(3)), KDL::Vector(p2(0), p2(1), p2(2))) );
+            KDL::Frame T_O_L = T_O_F * T_L_F.Inverse();
+
+            qd_vec[i].p_ = Eigen::Vector3d(T_O_L.p.x(), T_O_L.p.y(), T_O_L.p.z());
+            double qx, qy, qz, qw;
+            T_O_L.M.GetQuaternion(qx, qy, qz, qw);
+            qd_vec[i].q_ = Eigen::Vector4d(qx, qy, qz, qw);
+            qd_vec[i].weight_ = weight;
+            sum_weights += qd_vec[i].weight_;
+        }
+        // normalize the weights
+        for (int i = 0; i < qd_vec.size(); i++) {
+            qd_vec[i].weight_ /= sum_weights;
+        }
 }
 
 int main(int argc, char** argv) {
@@ -252,7 +284,7 @@ int main(int argc, char** argv) {
                     grid_->setDownsampleAllData(true);
                     grid_->setSaveLeafLayout(true);
                     grid_->setInputCloud(cloud_1);
-                    grid_->setLeafSize(0.003, 0.003, 0.003);
+                    grid_->setLeafSize(0.004, 0.004, 0.004);
                     grid_->filter (*res);
                     point_clouds_map[body_name] = res;
                     frames_map[body_name] = T_W_L;// * T_L_S;
@@ -273,7 +305,7 @@ int main(int argc, char** argv) {
 
                     // Use the same KdTree from the normal estimation
                     principalCurvaturesEstimation.setSearchMethod (tree);
-                    principalCurvaturesEstimation.setRadiusSearch(0.005);
+                    principalCurvaturesEstimation.setRadiusSearch(0.006);
 
                     // Actually compute the principal curvatures
                     pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures (new pcl::PointCloud<pcl::PrincipalCurvatures> ());
@@ -351,8 +383,20 @@ int main(int argc, char** argv) {
     ObjectModel om;
 
     for (int pidx = 0; pidx < point_clouds_map[ob_name]->points.size(); pidx++) {
-        om.addPointFeature((*features_map[ob_name])[pidx], point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
+        if (point_pc_clouds_map[ob_name]->points[pidx].pc1 > 1.1 * point_pc_clouds_map[ob_name]->points[pidx].pc2) {
+            // e.g. pc1=1, pc2=0
+            // edge
+            om.addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(PI)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
+            om.addPointFeature((*features_map[ob_name])[pidx], point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
+        }
+        else {
+            for (double angle = 0.0; angle < 359.0/180.0*PI; angle += 45.0/180.0*PI) {
+                om.addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(angle)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
+            }
+        }
     }
+
+    std::cout << "om.getPointFeatures().size(): " << om.getPointFeatures().size() << std::endl;
 //    om.res = point_clouds_map[ob_name];
 //    om.principalCurvatures = point_pc_clouds_map[ob_name];
 //    om.features_ = features_map[ob_name];
@@ -382,7 +426,7 @@ int main(int argc, char** argv) {
 
     cm.buildFeatureMaps();
 
-    om.randomizeSurface();
+//    om.randomizeSurface();
 
     // generate hand configuration model
     HandConfigurationModel hm;
@@ -474,8 +518,8 @@ int main(int argc, char** argv) {
     }
 */
 
-    std::random_device rd;
-    std::mt19937 gen(rd());
+//    std::random_device rd;
+//    std::mt19937 gen(rd());
 
 /*
     // TEST: rejection sampling from von Mises-Fisher distribution for 3-D sphere
@@ -547,56 +591,32 @@ int main(int argc, char** argv) {
 
     std::vector<double > weights(om.getPointFeatures().size());
 
-    const double sigma_p = 0.01;
+    const double sigma_p = 0.005;
     const double sigma_q = 100.0;
-    const double sigma_r = 0.01;
-/*
-    double f_max = uniVariateIsotropicGaussianKernel(0.0, 0.0, sigma_p);
-    for (double x = 0; x < 10.0; x += 0.001) {
-        double f = uniVariateIsotropicGaussianKernel(x, 0.0, sigma_p);
-        if (f < f_max * 0.1) {
-            std::cout << "f_max " << f_max << "   f_min " << f << "   x " << x << std::endl;
-            break;
-        }
-    }
+    const double sigma_r = 0.02;
 
-    return 0;
-*/
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
     om.setSamplerParameters(sigma_p, sigma_q, sigma_r);
     cm.setSamplerParameters(sigma_p, sigma_q, sigma_r);
 
-    const int qd_sample_count = 5000;
-    for (std::vector<std::string >::const_iterator lit = cm.getLinkNamesCol().begin(); lit !=  cm.getLinkNamesCol().end(); lit++) {
-        const std::string &link_name = (*lit);
-        std::cout << "generating query density for: " << link_name << std::endl;
-        std::vector<CollisionModel::QueryDensityElement > qd_vec(qd_sample_count);
-        double sum_weights = 0.0;
-        for (int i = 0; i < qd_sample_count; i++) {
-            Eigen::Vector3d p, p2;
-            Eigen::Vector4d q, q2;
-            Eigen::Vector2d r;
-            om.sample(p, q, r);
+    {
+        const int num_threads = cm.getLinkNamesCol().size();
+        std::unique_ptr<std::thread[] > t(new std::thread[num_threads]);
+        std::unique_ptr<std::vector<CollisionModel::QueryDensityElement >[] > qd_vec(new std::vector<CollisionModel::QueryDensityElement >[num_threads]);
 
-            if (!cm.sampleForR(link_name, r, p2, q2)) {
-                std::cout << "ERROR: cm.sampleForR" << std::endl;
-            }
-            double weight = cm.getMarginalDensityForR(link_name, r);
-            KDL::Frame T_O_F( KDL::Frame(KDL::Rotation::Quaternion(q(0), q(1), q(2), q(3)), KDL::Vector(p(0), p(1), p(2))) );
-            KDL::Frame T_L_F( KDL::Frame(KDL::Rotation::Quaternion(q2(0), q2(1), q2(2), q2(3)), KDL::Vector(p2(0), p2(1), p2(2))) );
-            KDL::Frame T_O_L = T_O_F * T_L_F.Inverse();
+        const int qd_sample_count = 10000;
+        for (int thread_id = 0; thread_id < num_threads; thread_id++) {
+            qd_vec[thread_id].resize(qd_sample_count);
+            std::vector<CollisionModel::QueryDensityElement > aaa;
+            t[thread_id] = std::thread(generateQueryDensity, gen(), std::cref(cm.getLinkNamesCol()[thread_id]), std::cref(cm), std::cref(om), std::ref(qd_vec[thread_id]));
+        }
 
-            qd_vec[i].p_ = Eigen::Vector3d(T_O_L.p.x(), T_O_L.p.y(), T_O_L.p.z());
-            double qx, qy, qz, qw;
-            T_O_L.M.GetQuaternion(qx, qy, qz, qw);
-            qd_vec[i].q_ = Eigen::Vector4d(qx, qy, qz, qw);
-            qd_vec[i].weight_ = weight;
-            sum_weights += qd_vec[i].weight_;
+        for (int thread_id = 0; thread_id < num_threads; ++thread_id) {
+            t[thread_id].join();
+            cm.addQueryDensity(cm.getLinkNamesCol()[thread_id], qd_vec[thread_id]);
         }
-        // normalize the weights
-        for (int i = 0; i < qd_sample_count; i++) {
-            qd_vec[i].weight_ /= sum_weights;
-        }
-        cm.addQueryDensity(link_name, qd_vec);
     }
 
 /*
@@ -639,10 +659,10 @@ int main(int argc, char** argv) {
     double cost_max = 0.0;
     KDL::Frame T_W_E_best;
     std::map<std::string, double> q_best;
-    for (int  i = 0; i < 40000; i++) {
+    for (int  i = 0; i < 20000; i++) {
         const std::string &link_name = cm.getRandomLinkNameCol();
         KDL::Frame T_O_L1;
-        cm.sampleQueryDensity(link_name, T_O_L1);
+        cm.sampleQueryDensity(gen(), link_name, T_O_L1);
         const std::map<std::string, double>& q_sample = hm.sample();
 
         double cost = cm.getQueryDensity(link_name, T_O_L1);

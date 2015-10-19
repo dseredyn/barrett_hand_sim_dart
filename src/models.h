@@ -62,8 +62,8 @@ protected:
     std::vector<Feature > fv_;
     double p_dist_max_, r_dist_max_;
     double sigma_p_, sigma_q_, sigma_r_, Cp_;
-    std::random_device rd_;
-    std::mt19937 gen_;
+//    std::random_device rd_;
+//    std::mt19937 gen_;
 
 public:
 
@@ -73,7 +73,7 @@ public:
 
     void setSamplerParameters(double sigma_p, double sigma_q, double sigma_r);
 
-    void sample(Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r);
+    void sample(int seed, Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r) const;
 
     void addPointFeature(const KDL::Frame &T_O_F, double pc1, double pc2);
 
@@ -110,8 +110,8 @@ public:
     std::vector<std::string > col_link_names;
     std::map<std::string, std::vector<QueryDensityElement > > qd_map_;
 
-    std::random_device rd_;
-    std::mt19937 gen_;
+//    std::random_device rd_;
+//    std::mt19937 gen_;
 
     double sigma_p_, sigma_q_, sigma_r_, Cp_;
 
@@ -133,11 +133,11 @@ public:
 
     void setSamplerParameters(double sigma_p, double sigma_q, double sigma_r);
 
-    double getMarginalDensityForR(const std::string &link_name, const Eigen::Vector2d &r);
-    bool sampleForR(const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q);
+    double getMarginalDensityForR(const std::string &link_name, const Eigen::Vector2d &r) const;
+    bool sampleForR(int seed, const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q) const;
 
-    bool sampleQueryDensity(const std::string &link_name, Eigen::Vector3d &p, Eigen::Vector4d &q);
-    bool sampleQueryDensity(const std::string &link_name, KDL::Frame &T_O_L);
+    bool sampleQueryDensity(int seed, const std::string &link_name, Eigen::Vector3d &p, Eigen::Vector4d &q) const;
+    bool sampleQueryDensity(int seed, const std::string &link_name, KDL::Frame &T_O_L) const;
     double getQueryDensity(const std::string &link_name, const Eigen::Vector3d &p, const Eigen::Vector4d &q) const;
     double getQueryDensity(const std::string &link_name, const KDL::Frame &T_O_L) const;
 };

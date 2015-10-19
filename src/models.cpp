@@ -52,8 +52,8 @@
 
 static const double PI(3.141592653589793);
 
-    CollisionModel::CollisionModel() :
-        gen_(rd_())
+    CollisionModel::CollisionModel() //:
+//        gen_(rd_())
     {
     }
 
@@ -169,7 +169,7 @@ static const double PI(3.141592653589793);
         }
     }
 
-    double CollisionModel::getMarginalDensityForR(const std::string &link_name, const Eigen::Vector2d &r) {
+    double CollisionModel::getMarginalDensityForR(const std::string &link_name, const Eigen::Vector2d &r) const {
         std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.find( link_name );
         if (it == link_features_map.end()) {
             return 0.0;
@@ -178,17 +178,21 @@ static const double PI(3.141592653589793);
 
         double sum = 0.0;
         for (int pidx = 0; pidx < features.size(); pidx++) {
+            if (std::fabs(r(0) - features[pidx].pc1) > r_dist_max_ || std::fabs(r(1) - features[pidx].pc2) > r_dist_max_ || features[pidx].weight < 0.0000001) {
+                continue;
+            }
             sum += features[pidx].weight * biVariateIsotropicGaussianKernel(r, Eigen::Vector2d(features[pidx].pc1, features[pidx].pc2), sigma_r_);
         }
         return sum;
     }
 
-    bool CollisionModel::sampleForR(const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q) {
+    bool CollisionModel::sampleForR(int seed, const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q) const {
         std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.find( link_name );
         if (it == link_features_map.end()) {
             return false;
         }
         const std::vector<Feature > &features = it->second;
+        std::mt19937 gen_(seed);
 
         const int n_points = features.size();
         std::vector<double > weights(n_points, 0.0);
@@ -199,7 +203,7 @@ static const double PI(3.141592653589793);
         // sample the x coordinate
         double sum = 0.0;
         for (int pidx = 0; pidx < n_points; pidx++) {
-            if (features[pidx].weight < 0.0000001) {
+            if (std::fabs(r(0) - features[pidx].pc1) > r_dist_max_ || std::fabs(r(1) - features[pidx].pc2) > r_dist_max_ || features[pidx].weight < 0.0000001) {
                 weights[pidx] = 0.0;
             }
             else {
@@ -304,12 +308,13 @@ static const double PI(3.141592653589793);
         return true;
     }
 
-    bool CollisionModel::sampleQueryDensity(const std::string &link_name, Eigen::Vector3d &p, Eigen::Vector4d &q) {
+    bool CollisionModel::sampleQueryDensity(int seed, const std::string &link_name, Eigen::Vector3d &p, Eigen::Vector4d &q) const {
         std::map<std::string, std::vector<QueryDensityElement > >::const_iterator it = qd_map_.find( link_name );
         if (it == qd_map_.end()) {
             return false;
         }
         const std::vector<QueryDensityElement > &qd = it->second;
+        std::mt19937 gen_(seed);
 
         const int n_points = qd.size();
         std::vector<double > weights(n_points, 0.0);
@@ -420,10 +425,10 @@ static const double PI(3.141592653589793);
         return true;
     }
 
-    bool CollisionModel::sampleQueryDensity(const std::string &link_name, KDL::Frame &T_O_L) {
+    bool CollisionModel::sampleQueryDensity(int seed, const std::string &link_name, KDL::Frame &T_O_L) const {
         Eigen::Vector3d p;
         Eigen::Vector4d q;
-        bool result = sampleQueryDensity(link_name, p, q);
+        bool result = sampleQueryDensity(seed, link_name, p, q);
         T_O_L = KDL::Frame(KDL::Rotation::Quaternion(q(0), q(1), q(2), q(3)), KDL::Vector(p(0), p(1), p(2)));
         return result;
     }
@@ -469,8 +474,8 @@ static const double PI(3.141592653589793);
 
 /******************************************************************************************************************************/
 
-    ObjectModel::ObjectModel() :
-        gen_(rd_())
+    ObjectModel::ObjectModel() //:
+//        gen_(rd_())
     {
     }
 
@@ -520,9 +525,11 @@ static const double PI(3.141592653589793);
         }
     }
 
-    void ObjectModel::sample(Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r) {
+    void ObjectModel::sample(int seed, Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r) const {
         const int n_points = fv_.size();
         std::vector<double > weights(n_points, 1.0 / static_cast<double >(n_points));
+
+        std::mt19937 gen_(seed);
 
         double sum = 1.0;
 
