@@ -270,6 +270,7 @@ int main(int argc, char** argv) {
                 dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
                 if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
                     std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
+                    std::cout << "mesh path: " << msh->getMeshPath() << std::endl;
                     const Eigen::Isometry3d &tf = sh->getLocalTransform();
                     KDL::Frame T_L_S;
                     EigenTfToKDL(tf, T_L_S);
@@ -602,8 +603,8 @@ int main(int argc, char** argv) {
 
     std::vector<double > weights(om.getPointFeatures().size());
 
-    const double sigma_p = 0.02;
-    const double sigma_q = 25.0;
+    const double sigma_p = 0.005;
+    const double sigma_q = 100.0;
     const double sigma_r = 0.02;
 
     std::random_device rd;
@@ -617,7 +618,7 @@ int main(int argc, char** argv) {
         std::unique_ptr<std::thread[] > t(new std::thread[num_threads]);
         std::unique_ptr<std::vector<CollisionModel::QueryDensityElement >[] > qd_vec(new std::vector<CollisionModel::QueryDensityElement >[num_threads]);
 
-        const int qd_sample_count = 20000;
+        const int qd_sample_count = 50000;
         for (int thread_id = 0; thread_id < num_threads; thread_id++) {
             qd_vec[thread_id].resize(qd_sample_count);
             std::vector<CollisionModel::QueryDensityElement > aaa;
@@ -667,7 +668,7 @@ int main(int argc, char** argv) {
     return 0;
 //*/
 
-/*
+//*
     // visualisation of query density
     KDL::Rotation rot(KDL::Rotation::RotZ(-(-90.0+30.0)/180.0*PI));
     double grid_size = 0.004;
