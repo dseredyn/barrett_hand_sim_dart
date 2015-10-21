@@ -73,7 +73,7 @@ double getTransitionProbability(double cost1, double cost2, double temperature) 
         return 1.0;
     }
     
-    return temperature / 100.0 * 0.3;
+    return temperature / 100.0 * 0.05;
 }
 
 void getFK(const dart::dynamics::SkeletonPtr &bh, const std::map<std::string, double> &q_map, const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) {
@@ -602,8 +602,8 @@ int main(int argc, char** argv) {
 
     std::vector<double > weights(om.getPointFeatures().size());
 
-    const double sigma_p = 0.01;
-    const double sigma_q = 100.0;
+    const double sigma_p = 0.02;
+    const double sigma_q = 25.0;
     const double sigma_r = 0.02;
 
     std::random_device rd;
@@ -617,7 +617,7 @@ int main(int argc, char** argv) {
         std::unique_ptr<std::thread[] > t(new std::thread[num_threads]);
         std::unique_ptr<std::vector<CollisionModel::QueryDensityElement >[] > qd_vec(new std::vector<CollisionModel::QueryDensityElement >[num_threads]);
 
-        const int qd_sample_count = 10000;
+        const int qd_sample_count = 20000;
         for (int thread_id = 0; thread_id < num_threads; thread_id++) {
             qd_vec[thread_id].resize(qd_sample_count);
             std::vector<CollisionModel::QueryDensityElement > aaa;
@@ -662,6 +662,41 @@ int main(int argc, char** argv) {
         std::cout << qd_vec[idx].weight_ << std::endl;
         ros::spinOnce();
         ros::Duration(2.0).sleep();
+    }
+
+    return 0;
+//*/
+
+/*
+    // visualisation of query density
+    KDL::Rotation rot(KDL::Rotation::RotZ(-(-90.0+30.0)/180.0*PI));
+    double grid_size = 0.004;
+    std::list<std::pair<KDL::Frame, double> > test_list;
+    double max_cost = 0.0;
+    for (double x = -0.12; x < 0.12; x += grid_size) {
+        for (double y = -0.12; y < 0.12; y += grid_size) {
+            KDL::Frame T_O_L = KDL::Frame(rot, KDL::Vector(x, y, 0.0));
+            double cost = cm.getQueryDensity("right_HandFingerOneKnuckleThreeLink", T_O_L);
+            test_list.push_back(std::make_pair(T_O_L, cost));
+            if (cost > max_cost) {
+                max_cost = cost;
+            }
+        }
+    }
+
+    std::cout << "max_cost " << max_cost << std::endl;
+
+    for (std::list<std::pair<KDL::Frame, double> >::const_iterator it = test_list.begin(); it != test_list.end(); it++) {
+        double color = it->second / max_cost;
+        m_id = markers_pub.addSinglePointMarkerCube(m_id, it->first * KDL::Vector(), color, color, color, 1, grid_size, grid_size, grid_size, ob_name);
+    }
+
+    markers_pub.publish();
+    for (int i = 0; i < 100; i++) {
+        publishTransform(br, T_W_O * KDL::Frame(rot, KDL::Vector(0,0,-0.1)), "right_HandFingerOneKnuckleThreeLink", "world");
+
+        ros::spinOnce();
+        loop_rate.sleep();
     }
 
     return 0;

@@ -454,7 +454,7 @@ static const double PI(3.141592653589793);
                     continue;
                 }
                 else {
-                    Q *= misesFisherKernel(qd[pidx].q_, qd[pidx].q_, sigma_q_, Cp_);
+                    Q *= misesFisherKernel(q, qd[pidx].q_, sigma_q_, Cp_);
                     sum += Q;
                 }
             }
