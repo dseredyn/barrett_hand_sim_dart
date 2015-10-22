@@ -52,8 +52,7 @@
 
 static const double PI(3.141592653589793);
 
-    CollisionModel::CollisionModel() //:
-//        gen_(rd_())
+    CollisionModel::CollisionModel()
     {
     }
 
@@ -64,25 +63,6 @@ static const double PI(3.141592653589793);
 
     const std::vector<std::string >& CollisionModel::getLinkNamesCol() const {
         return col_link_names;
-    }
-
-    void CollisionModel::buildFeatureMaps() {
-        for (std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.begin(); it != link_features_map.end(); it++) {
-            const std::string &link_name = it->first;
-            const std::vector<Feature > &fvec = it->second;
-            link_features_map_edge.insert( std::make_pair(link_name, std::vector<Feature>()) );
-            link_features_map_sym.insert( std::make_pair(link_name, std::vector<Feature>()) );
-            for (std::vector<Feature >::const_iterator fit = fvec.begin(); fit != fvec.end(); fit++) {
-                const Feature &feature = (*fit);
-                if (feature.pc1 > 1.1 * feature.pc2) {
-                    // edge
-                    link_features_map_edge[it->first].push_back(feature);
-                }
-                else {
-                    link_features_map_sym[it->first].push_back(feature);
-                }
-            }
-        }
     }
 
     void CollisionModel::getTransform(const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) const {
@@ -96,13 +76,7 @@ static const double PI(3.141592653589793);
     void CollisionModel::addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
                         const KDL::Frame &T_W_L, const std::vector<ObjectModel::Feature > &ob_features,
                         const KDL::Frame &T_W_O) {
-
-//    void CollisionModel::addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
-//                        const KDL::Frame &T_W_S,
-//                        const pcl::PointCloud<pcl::PointNormal>::Ptr &ob_res, const pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr &ob_principalCurvatures,
-//                        const KDL::Frame &T_W_O, const boost::shared_ptr<std::vector<KDL::Frame > > &feature_frames) {
-
-        const double lambda = 40.0;
+        const double lambda = - std::log(0.01) / (dist_range * dist_range);
         std::list<std::pair<int, double> > link_pt;
 
         for (int poidx = 0; poidx < ob_features.size(); poidx++) {
@@ -460,7 +434,7 @@ static const double PI(3.141592653589793);
             }
 //            sum += qd[pidx].weight_ *
 //                triVariateIsotropicGaussianKernel(p, qd[pidx].p_, sigma_p_) *
-//                misesFisherKernel(qd[pidx].q_, qd[pidx].q_, sigma_q_, Cp_);
+//                misesFisherKernel(q, qd[pidx].q_, sigma_q_, Cp_);
         }
 
         return sum;
@@ -474,8 +448,7 @@ static const double PI(3.141592653589793);
 
 /******************************************************************************************************************************/
 
-    ObjectModel::ObjectModel() //:
-//        gen_(rd_())
+    ObjectModel::ObjectModel()
     {
     }
 

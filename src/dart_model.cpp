@@ -436,10 +436,6 @@ int main(int argc, char** argv) {
                             om.getPointFeatures(), T_W_O);
     }
 
-    cm.buildFeatureMaps();
-
-//    om.randomizeSurface();
-
     // generate hand configuration model
     HandConfigurationModel hm;
     std::map<std::string, double> joint_q_map_before = joint_q_map;
@@ -453,6 +449,34 @@ int main(int argc, char** argv) {
     joint_q_map_before["right_HandFingerThreeKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
 
     hm.generateModel(joint_q_map_before, joint_q_map, 1.0, 30, 0.05);
+
+/*
+    // visuzlise all features at the contact region
+    const std::string link_name_test("right_HandFingerTwoKnuckleThreeLink");
+    KDL::Frame T_E_L;
+    cm.getTransform("right_HandPalmLink", "right_HandFingerTwoKnuckleThreeLink", T_E_L);
+    for (int idx = 0; idx < cm.link_features_map[link_name_test].size(); idx++) {
+        const KDL::Frame &T_L_F = cm.link_features_map[link_name_test][idx].T_L_F;
+        double weight = cm.link_features_map[link_name_test][idx].weight;
+        KDL::Frame T_W_F = T_W_E * T_E_L * T_L_F;
+        KDL::Vector v1 = T_W_F * KDL::Vector();
+        KDL::Vector v2 = T_W_F * KDL::Vector(0, 0, 0.01);
+        KDL::Vector v3 = T_W_F * KDL::Vector(0.01, 0, 0);
+//        m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, "world");
+//        m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, "world");
+        double color = weight;
+        std::cout << weight << std::endl;
+        m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, color, color, color, 1, 0.001, 0.001, 0.001, "world");
+
+    }
+    markers_pub.addEraseMarkers(m_id, m_id+300);
+    markers_pub.publish();
+    for (int i = 0; i < 100; i++) {
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
+    return 0;
+//*/
 
 /*
     // visuzlise all features on the object
@@ -500,38 +524,6 @@ int main(int argc, char** argv) {
     }
     return 0;
 //*/
-
-/*
-    for (std::map<std::string, double>::const_iterator it = joint_q_map.begin(); it != joint_q_map.end(); it++) {
-        dart::dynamics::Joint *j = bh->getJoint( it-> first );
-        
-        j->getPositionLowerLimit(0)
-        j->setPosition( 0, it->second );
-    }
-*/
-
-/*
-    // TEST: finding features
-    for (double x = -0.1; x < 0.1; x+=0.005) {
-        for (double y = -0.1; y < 0.1; y+=0.005) {
-            for (double z = -0.1; z < 0.1; z+=0.005) {
-                KDL::Frame f(KDL::Rotation::RotX(45.0/180.0*PI) * KDL::Rotation::RotZ(180.0/180.0*PI), KDL::Vector(x, y, z));
-                if (om.findFeature(0.3, 0.0, 0.1, 0.1, f, 0.005, 20.0/180.0*PI)) {
-//                    std::cout << "found" << std::endl;
-                    m_id = markers_pub.addSinglePointMarkerCube(m_id, f.p, 0, 0, 1, 1, 0.001, 0.001, 0.001, ob_name);
-                }
-            }
-        }
-    }
-    markers_pub.publish();
-    for (int i = 0; i < 100; i++) {
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
-*/
-
-//    std::random_device rd;
-//    std::mt19937 gen(rd());
 
 /*
     // TEST: rejection sampling from von Mises-Fisher distribution for 3-D sphere
@@ -603,9 +595,9 @@ int main(int argc, char** argv) {
 
     std::vector<double > weights(om.getPointFeatures().size());
 
-    const double sigma_p = 0.005;
+    const double sigma_p = 0.01;
     const double sigma_q = 100.0;
-    const double sigma_r = 0.02;
+    const double sigma_r = 0.05;
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -668,7 +660,7 @@ int main(int argc, char** argv) {
     return 0;
 //*/
 
-//*
+/*
     // visualisation of query density
     KDL::Rotation rot(KDL::Rotation::RotZ(-(-90.0+30.0)/180.0*PI));
     double grid_size = 0.004;

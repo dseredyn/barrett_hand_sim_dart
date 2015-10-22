@@ -62,8 +62,6 @@ protected:
     std::vector<Feature > fv_;
     double p_dist_max_, r_dist_max_;
     double sigma_p_, sigma_q_, sigma_r_, Cp_;
-//    std::random_device rd_;
-//    std::mt19937 gen_;
 
 public:
 
@@ -101,17 +99,11 @@ public:
         double weight_;
     };
     std::map<std::string, std::vector<Feature > > link_features_map;
-    std::map<std::string, std::vector<Feature > > link_features_map_edge;
-    std::map<std::string, std::vector<Feature > > link_features_map_sym;
 
     std::map<std::string, double> joint_q_map_;
     std::map<std::string, KDL::Frame > frames_map_;
-    std::map<std::pair<std::string, std::string>, std::list<KDL::Frame> > frames_rel_map_;
     std::vector<std::string > col_link_names;
     std::map<std::string, std::vector<QueryDensityElement > > qd_map_;
-
-//    std::random_device rd_;
-//    std::mt19937 gen_;
 
     double sigma_p_, sigma_q_, sigma_r_, Cp_;
 
@@ -120,8 +112,6 @@ public:
     const std::string& getRandomLinkNameCol() const;
 
     const std::vector<std::string >& getLinkNamesCol() const;
-
-    void buildFeatureMaps();
 
     void getTransform(const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) const;
 
