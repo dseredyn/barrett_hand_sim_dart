@@ -47,7 +47,7 @@ int visualiseAllFeatures(MarkerPublisher &markers_pub, int m_id, const std::vect
 int visualiseRejectionSamplingVonMisesFisher3(MarkerPublisher &markers_pub, int m_id);
 int visualiseRejectionSamplingVonMisesFisher4(MarkerPublisher &markers_pub, int m_id);
 int visualiseQueryDensityParticles(MarkerPublisher &markers_pub, int m_id, const std::vector<QueryDensity::QueryDensityElement > &qd_vec, const std::string &frame_id);
-int visualiseQueryDensityFunction(tf::TransformBroadcaster &br, MarkerPublisher &markers_pub, int m_id, const CollisionModel &cm, const std::string &link_name, const KDL::Frame &T_W_O, const std::string &frame_id);
+int visualiseQueryDensityFunction(tf::TransformBroadcaster &br, MarkerPublisher &markers_pub, int m_id, const QueryDensity &qd, const std::string &link_name, const KDL::Frame &T_W_O, const std::string &frame_id);
 
 #endif  // VISUAL_DEBUG_H__
 

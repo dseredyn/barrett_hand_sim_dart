@@ -365,7 +365,7 @@ int main(int argc, char** argv) {
             om.addPointFeature((*features_map[ob_name])[pidx], point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
         }
         else {
-            for (double angle = 0.0; angle < 359.0/180.0*PI; angle += 45.0/180.0*PI) {
+            for (double angle = 0.0; angle < 359.0/180.0*PI; angle += 20.0/180.0*PI) {
                 om.addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(angle)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
             }
         }
