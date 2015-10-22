@@ -53,9 +53,9 @@
 
 static const double PI(3.141592653589793);
 
-int visualiseContactRegion(MarkerPublisher &markers_pub, int m_id, const std::vector<CollisionModel::Feature > &f_vec, const KDL::Frame &T_W_L) {
+int visualiseContactRegion(MarkerPublisher &markers_pub, int m_id, const std::vector<CollisionModel::Feature > &f_vec, const KDL::Frame &T_L_C, const KDL::Frame &T_W_L) {
         for (int idx = 0; idx < f_vec.size(); idx++) {
-            KDL::Frame T_W_F = T_W_L * f_vec[idx].T_L_F;
+            KDL::Frame T_W_F = T_W_L * T_L_C * f_vec[idx].T_C_F;
             KDL::Vector v1 = T_W_F * KDL::Vector();
             KDL::Vector v2 = T_W_F * KDL::Vector(0, 0, 0.01);
             KDL::Vector v3 = T_W_F * KDL::Vector(0.01, 0, 0);
@@ -192,7 +192,7 @@ int visualiseQueryDensityParticles(MarkerPublisher &markers_pub, int m_id, const
     return m_id;
 }
 
-int visualiseQueryDensityFunction(tf::TransformBroadcaster &br, MarkerPublisher &markers_pub, int m_id, const QueryDensity &qd, const std::string &link_name, const KDL::Frame &T_W_O, const std::string &frame_id) {
+int visualiseQueryDensityFunction(tf::TransformBroadcaster &br, MarkerPublisher &markers_pub, int m_id, const QueryDensity &qd, const std::string &link_name, const KDL::Frame &T_L_C, const KDL::Frame &T_W_O, const std::string &frame_id) {
     // visualisation of query density
     KDL::Rotation rot(KDL::Rotation::RotZ(-(-90.0+30.0)/180.0*PI));
     double grid_size = 0.004;
@@ -201,7 +201,7 @@ int visualiseQueryDensityFunction(tf::TransformBroadcaster &br, MarkerPublisher 
     for (double x = -0.12; x < 0.12; x += grid_size) {
         for (double y = -0.12; y < 0.12; y += grid_size) {
             KDL::Frame T_O_L = KDL::Frame(rot, KDL::Vector(x, y, 0.0));
-            double cost = qd.getQueryDensity(link_name, T_O_L);
+            double cost = qd.getQueryDensity(link_name, T_O_L * T_L_C);
             test_list.push_back(std::make_pair(T_O_L, cost));
             if (cost > max_cost) {
                 max_cost = cost;

@@ -39,6 +39,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
+#include <fstream>
 
 #include <thread>
 
@@ -117,12 +118,16 @@ void generateQueryDensity(int seed, const std::string &link_name, const Collisio
             }
             double weight = cm.getMarginalDensityForR(link_name, r);
             KDL::Frame T_O_F( KDL::Frame(KDL::Rotation::Quaternion(q(0), q(1), q(2), q(3)), KDL::Vector(p(0), p(1), p(2))) );
-            KDL::Frame T_L_F( KDL::Frame(KDL::Rotation::Quaternion(q2(0), q2(1), q2(2), q2(3)), KDL::Vector(p2(0), p2(1), p2(2))) );
-            KDL::Frame T_O_L = T_O_F * T_L_F.Inverse();
+            KDL::Frame T_C_F( KDL::Frame(KDL::Rotation::Quaternion(q2(0), q2(1), q2(2), q2(3)), KDL::Vector(p2(0), p2(1), p2(2))) );
+            KDL::Frame T_L_C;
+            if (!cm.getT_L_C(link_name, T_L_C)) {
+                std::cout << "ERROR: generateQueryDensity: " << link_name << std::endl;
+            }
+            KDL::Frame T_O_C = T_O_F * T_C_F.Inverse();
 
-            qd_vec[i].p_ = Eigen::Vector3d(T_O_L.p.x(), T_O_L.p.y(), T_O_L.p.z());
+            qd_vec[i].p_ = Eigen::Vector3d(T_O_C.p.x(), T_O_C.p.y(), T_O_C.p.z());
             double qx, qy, qz, qw;
-            T_O_L.M.GetQuaternion(qx, qy, qz, qw);
+            T_O_C.M.GetQuaternion(qx, qy, qz, qw);
             qd_vec[i].q_ = Eigen::Vector4d(qx, qy, qz, qw);
             qd_vec[i].weight_ = weight;
             sum_weights += qd_vec[i].weight_;
@@ -134,6 +139,26 @@ void generateQueryDensity(int seed, const std::string &link_name, const Collisio
 }
 
 int main(int argc, char** argv) {
+
+    CollisionModel::Feature ft;
+
+    std::ifstream fl;
+    fl.open("aaa.txt");
+    fl >> ft;
+    fl.close();
+
+    std::cout << ft << std::endl;
+/*
+    ft.T_C_F = KDL::Frame(KDL::Vector(1,2,3));
+
+    std::cout << ft << std::endl;
+
+    std::ofstream fl;
+    fl.open("aaa.txt");
+    fl << ft << "\n";
+    fl.close();
+*/
+    return 0;
 
     srand ( time(NULL) );
 
@@ -297,7 +322,7 @@ int main(int argc, char** argv) {
                     grid_->setDownsampleAllData(true);
                     grid_->setSaveLeafLayout(true);
                     grid_->setInputCloud(cloud_1);
-                    grid_->setLeafSize(0.004, 0.004, 0.004);
+                    grid_->setLeafSize(0.005, 0.005, 0.005);
                     grid_->filter (*res);
                     point_clouds_map[body_name] = res;
                     frames_map[body_name] = T_W_L;// * T_L_S;
@@ -318,7 +343,7 @@ int main(int argc, char** argv) {
 
                     // Use the same KdTree from the normal estimation
                     principalCurvaturesEstimation.setSearchMethod (tree);
-                    principalCurvaturesEstimation.setRadiusSearch(0.006);
+                    principalCurvaturesEstimation.setRadiusSearch(0.008);
 
                     // Actually compute the principal curvatures
                     pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures (new pcl::PointCloud<pcl::PrincipalCurvatures> ());
@@ -410,15 +435,18 @@ int main(int argc, char** argv) {
     joint_q_map_before["right_HandFingerThreeKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
 
     hm.generateModel(joint_q_map_before, joint_q_map, 1.0, 30, 0.05);
-
-//    m_id = visualiseContactRegion( markers_pub, m_id, cm.getLinkFeatures("right_HandFingerTwoKnuckleThreeLink"), T_W_E * frames_map["right_HandPalmLink"].Inverse() * frames_map["right_HandFingerTwoKnuckleThreeLink"] );
+//    {
+//        KDL::Frame T_L_C;
+//        cm.getT_L_C("right_HandFingerTwoKnuckleThreeLink", T_L_C);
+//        m_id = visualiseContactRegion( markers_pub, m_id, cm.getLinkFeatures("right_HandFingerTwoKnuckleThreeLink"), T_L_C, T_W_E * frames_map["right_HandPalmLink"].Inverse() * frames_map["right_HandFingerTwoKnuckleThreeLink"] );
+//    }
 //    m_id = visualiseAllFeatures(markers_pub, m_id, om.getPointFeatures(), ob_name);
 //    m_id = visualiseRejectionSamplingVonMisesFisher3(markers_pub, m_id);
 //    m_id = visualiseRejectionSamplingVonMisesFisher4(markers_pub, m_id);
 
     std::vector<double > weights(om.getPointFeatures().size());
 
-    const double sigma_p = 0.01;
+    const double sigma_p = 0.005;
     const double sigma_q = 100.0;
     const double sigma_r = 0.05;
 
@@ -450,8 +478,13 @@ int main(int argc, char** argv) {
         }
     }
 
-//    m_id = visualiseQueryDensityParticles(markers_pub, m_id, cm.qd_map_["right_HandFingerTwoKnuckleThreeLink"], ob_name);
-//    m_id = visualiseQueryDensityFunction(br, markers_pub, m_id, qd, "right_HandFingerTwoKnuckleThreeLink", T_W_O, ob_name);
+//    m_id = visualiseQueryDensityParticles(markers_pub, m_id, qd.qd_map_["right_HandFingerTwoKnuckleThreeLink"], ob_name);
+//    {
+//        KDL::Frame T_L_C;
+//        cm.getT_L_C("right_HandFingerTwoKnuckleThreeLink", T_L_C);
+//        m_id = visualiseQueryDensityFunction(br, markers_pub, m_id, qd, "right_HandFingerTwoKnuckleThreeLink", T_L_C, T_W_O, ob_name);
+//    }
+
 
     double cost_max = 0.0;
     int good_grasps_count = 0;
@@ -460,10 +493,14 @@ int main(int argc, char** argv) {
     for (int  i = 0; i < 4000; i++) {
         const std::string &link_name = cm.getRandomLinkNameCol();
         KDL::Frame T_O_L1;
-        qd.sampleQueryDensity(gen(), link_name, T_O_L1);
+        KDL::Frame T_O_C1;
+        qd.sampleQueryDensity(gen(), link_name, T_O_C1);
+        KDL::Frame T_L1_C;
+        cm.getT_L_C(link_name, T_L1_C);
+        T_O_L1 = T_O_C1 * T_L1_C.Inverse();
         const std::map<std::string, double>& q_sample = hm.sample();
 
-        double cost = qd.getQueryDensity(link_name, T_O_L1);
+        double cost = qd.getQueryDensity(link_name, T_O_L1 * T_L1_C);
         for (std::vector<std::string >::const_iterator lit = cm.getLinkNamesCol().begin(); lit != cm.getLinkNamesCol().end(); lit++) {
             if (cost < 0.0000001) {
                 cost = 0.0;
@@ -472,10 +509,13 @@ int main(int argc, char** argv) {
             if (link_name == (*lit)) {
                 continue;
             }
+
+            KDL::Frame T_L2_C;
+            cm.getT_L_C((*lit), T_L2_C);
             KDL::Frame T_L1_L2;
             getFK(bh, q_sample, link_name, (*lit), T_L1_L2);
             KDL::Frame T_O_L2( T_O_L1 * T_L1_L2 );
-            cost *= qd.getQueryDensity((*lit), T_O_L2);
+            cost *= qd.getQueryDensity((*lit), T_O_L2 * T_L2_C);
         }
 
         KDL::Frame T_L1_E;
@@ -498,7 +538,7 @@ int main(int argc, char** argv) {
 
     std::cout << "best: " << cost_max << "   good_grasps_count " << good_grasps_count << std::endl;
 
-    return 0;
+//    return 0;
     double temperature = 100.0;
 
     // visualisation
@@ -592,7 +632,9 @@ int main(int argc, char** argv) {
             KDL::Frame T_E_L;
             getFK(bh, q_new, "right_HandPalmLink", (*lit), T_E_L);
             KDL::Frame T_O_L( T_W_O.Inverse() * T_W_E_new * T_E_L );
-            cost *= qd.getQueryDensity((*lit), T_O_L);
+            KDL::Frame T_L_C;
+            cm.getT_L_C((*lit), T_L_C);
+            cost *= qd.getQueryDensity((*lit), T_O_L * T_L_C);
         }
         double trPr = getTransitionProbability(cost_max, cost, temperature);
         std::cout << "temp: " << temperature << "   cost: " << cost_max << "   cost_new: " << cost << "   trPr: " << trPr << std::endl;

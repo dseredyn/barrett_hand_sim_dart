@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
+#include <iostream>
 
 #include "Eigen/Dense"
 
@@ -109,16 +110,22 @@ class CollisionModel {
 public:
     class Feature {
     public:
-        KDL::Frame T_L_F;
+        Feature();
+
+        KDL::Frame T_C_F;
         double pc1, pc2;
         double dist;
         double weight;
+
+        friend std::ostream& operator<< (std::ostream& stream, const Feature& f);
+        friend std::istream& operator>> (std::istream& stream, Feature& f);
     };
 
 protected:
     double p_dist_max_, r_dist_max_;
     double sigma_p_, sigma_q_, sigma_r_, Cp_;
     std::map<std::string, std::vector<Feature > > link_features_map_;
+    std::map<std::string, KDL::Frame > T_L_C_map_;
     std::vector<Feature > empty_f_vec_;
     std::vector<std::string > col_link_names_;
 
@@ -130,6 +137,8 @@ public:
     const std::vector<std::string >& getLinkNamesCol() const;
     const std::vector<Feature >& getLinkFeatures(const std::string &link_name) const;
 
+    bool getT_L_C(const std::string &link_name, KDL::Frame &T_L_C) const;
+
     void addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
                         const KDL::Frame &T_W_L, const std::vector<ObjectModel::Feature > &ob_features,
                         const KDL::Frame &T_W_O);
@@ -138,6 +147,8 @@ public:
 
     double getMarginalDensityForR(const std::string &link_name, const Eigen::Vector2d &r) const;
     bool sampleForR(int seed, const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q) const;
+
+    void saveToFile(const std::string &filename) const;
 };
 
 class HandConfigurationModel {

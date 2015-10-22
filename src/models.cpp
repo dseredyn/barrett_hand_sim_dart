@@ -34,6 +34,9 @@
 #include <stdio.h>
 #include <time.h>
 
+#include <iostream>
+#include <fstream>
+
 #include "Eigen/Dense"
 
 #include <kdl/frames.hpp>
@@ -74,6 +77,15 @@ static const double PI(3.141592653589793);
         return it->second;
     }
 
+    bool CollisionModel::getT_L_C(const std::string &link_name, KDL::Frame &T_L_C) const {
+        std::map<std::string, KDL::Frame >::const_iterator it = T_L_C_map_.find(link_name);
+        if (it == T_L_C_map_.end()) {
+            return false;
+        }
+        T_L_C = it->second;
+        return true;
+    }
+
     void CollisionModel::addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
                         const KDL::Frame &T_W_L, const std::vector<ObjectModel::Feature > &ob_features,
                         const KDL::Frame &T_W_O) {
@@ -96,17 +108,27 @@ static const double PI(3.141592653589793);
         }
         if ( link_pt.size() > 0 ) {
             link_features_map_[link_name].resize( link_pt.size() );
+            std::vector<KDL::Frame > T_L_F_vec( link_pt.size() );
             col_link_names_.push_back(link_name);
             int fidx = 0;
+            KDL::Vector col_pt;
+            double sum_weight = 0.0;
             for (std::list<std::pair<int, double> >::const_iterator it = link_pt.begin(); it != link_pt.end(); it++, fidx++) {
                 int poidx = it->first;
                 link_features_map_[link_name][fidx].pc1 = ob_features[poidx].pc1_;
                 link_features_map_[link_name][fidx].pc2 = ob_features[poidx].pc2_;
                 KDL::Frame T_W_F = T_W_O * ob_features[poidx].T_O_F_;
-                link_features_map_[link_name][fidx].T_L_F = T_W_L.Inverse() * T_W_F;
+                T_L_F_vec[fidx] = T_W_L.Inverse() * T_W_F;
                 double dist = it->second;
                 link_features_map_[link_name][fidx].dist = dist;
-                link_features_map_[link_name][fidx].weight = std::exp(-lambda * dist * dist);
+                double weight = std::exp(-lambda * dist * dist);
+                link_features_map_[link_name][fidx].weight = weight;
+                col_pt = col_pt + weight * T_L_F_vec[fidx].p;
+                sum_weight += weight;
+            }
+            T_L_C_map_[link_name] = KDL::Frame(col_pt / sum_weight);
+            for (int fidx = 0; fidx < link_features_map_[link_name].size(); fidx++) {
+                link_features_map_[link_name][fidx].T_C_F = T_L_C_map_[link_name].Inverse() * T_L_F_vec[fidx];
             }
         }
     }
@@ -187,7 +209,7 @@ static const double PI(3.141592653589793);
         for (int pidx = 0; pidx < n_points; pidx++) {
             rr -= weights[pidx];
             if (rr <= 0.0) {
-                result_x = features[pidx].T_L_F.p.x();
+                result_x = features[pidx].T_C_F.p.x();
                 break;
             }
         }
@@ -198,11 +220,11 @@ static const double PI(3.141592653589793);
         // sample the y coordinate
         sum = 0.0;
         for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_x - features[pidx].T_L_F.p.x()) > p_dist_max_ || weights[pidx] < 0.0000001) {
+            if (std::fabs(result_x - features[pidx].T_C_F.p.x()) > p_dist_max_ || weights[pidx] < 0.0000001) {
                 weights[pidx] = 0.0;
             }
             else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_x, features[pidx].T_L_F.p.x(), sigma_p_);
+                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_x, features[pidx].T_C_F.p.x(), sigma_p_);
             }
             sum += weights[pidx];
         }
@@ -211,7 +233,7 @@ static const double PI(3.141592653589793);
         for (int pidx = 0; pidx < n_points; pidx++) {
             rr -= weights[pidx];
             if (rr <= 0.0) {
-                result_y = features[pidx].T_L_F.p.y();
+                result_y = features[pidx].T_C_F.p.y();
                 break;
             }
         }
@@ -222,11 +244,11 @@ static const double PI(3.141592653589793);
         // sample the z coordinate
         sum = 0.0;
         for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_y - features[pidx].T_L_F.p.y()) > p_dist_max_ || weights[pidx] < 0.0000001) {
+            if (std::fabs(result_y - features[pidx].T_C_F.p.y()) > p_dist_max_ || weights[pidx] < 0.0000001) {
                 weights[pidx] = 0.0;
             }
             else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_y, features[pidx].T_L_F.p.y(), sigma_p_);
+                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_y, features[pidx].T_C_F.p.y(), sigma_p_);
             }
             sum += weights[pidx];
         }
@@ -235,7 +257,7 @@ static const double PI(3.141592653589793);
         for (int pidx = 0; pidx < n_points; pidx++) {
             rr -= weights[pidx];
             if (rr <= 0.0) {
-                result_z = features[pidx].T_L_F.p.z();
+                result_z = features[pidx].T_C_F.p.z();
                 break;
             }
         }
@@ -246,11 +268,11 @@ static const double PI(3.141592653589793);
         // sample the orientation
         sum = 0.0;
         for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_z - features[pidx].T_L_F.p.z()) > p_dist_max_ || weights[pidx] < 0.0000001) {
+            if (std::fabs(result_z - features[pidx].T_C_F.p.z()) > p_dist_max_ || weights[pidx] < 0.0000001) {
                 weights[pidx] = 0.0;
             }
             else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_z, features[pidx].T_L_F.p.z(), sigma_p_);
+                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_z, features[pidx].T_C_F.p.z(), sigma_p_);
             }
             sum += weights[pidx];
         }
@@ -260,7 +282,7 @@ static const double PI(3.141592653589793);
         for (int pidx = 0; pidx < n_points; pidx++) {
             rr -= weights[pidx];
             if (rr <= 0.0) {
-                features[pidx].T_L_F.M.GetQuaternion(mean_q(0), mean_q(1), mean_q(2), mean_q(3));                
+                features[pidx].T_C_F.M.GetQuaternion(mean_q(0), mean_q(1), mean_q(2), mean_q(3));                
                 break;
             }
         }
@@ -277,6 +299,50 @@ static const double PI(3.141592653589793);
         q = result_q;
 
         return true;
+    }
+
+    CollisionModel::Feature::Feature() {
+        pc1 = 0.0;
+        pc2 = 0.0;
+        dist = 0.0;
+        weight = 0.0;
+    }
+
+    std::ostream& operator<< (std::ostream& stream, const CollisionModel::Feature& f) {
+//        double qx, qy, qz, qw;
+//        f.T_C_F.M.GetQuaternion(qx, qy, qz, qw);
+//        stream << f.T_C_F.p.x() << " " << f.T_C_F.p.y() << " " << f.T_C_F.p.z() << " " <<
+//                qx << " " << qy << " " << qz << " " << qw << " " <<  f.pc1 << " " <<  f.pc2 << " " <<
+//                f.dist << " " << f.weight;
+
+        stream << f.T_C_F << " " <<  f.pc1 << " " <<  f.pc2 << " " << f.dist << " " << f.weight;
+    }
+
+    std::istream& operator>> (std::istream& stream, CollisionModel::Feature& f) {
+//        double x, y, z, qx, qy, qz, qw;
+//        stream >> x >> y >> z >> qx >> qy >> qz >> qw >> f.pc1 >> f.pc2 >> f.dist >> f.weight;
+        stream >> f.T_C_F >> f.pc1 >> f.pc2 >> f.dist >> f.weight;
+//        f.T_C_F = KDL::Frame( KDL::Rotation::Quaternion(qx, qy, qz, qw), KDL::Vector(x, y, z) );
+    }
+
+    void CollisionModel::saveToFile(const std::string &filename) const {
+/*        ofstream f;
+        f.open(filename);
+        f << p_dist_max_ << " " << r_dist_max_ << " " << sigma_p_ << " " << sigma_q_ << " " << sigma_r_ << " " << Cp_ << "\n";
+
+        f << link_features_map_.size() << "\n";
+        for (std::map<std::string, std::vector<Feature > >::const_iterator it1 = link_features_map_.begin(); it1 != link_features_map_.end(); it1++) {
+            f << it1->first << " " << it1->second.size() << "\n";
+            for (std::vector<Feature >::const_iterator it2 = it1->second.begin(); it2 != it->second.end(); it2++) {
+                f << 
+
+
+            }
+        }
+    std::map<std::string, std::vector<Feature > > link_features_map_;
+    std::map<std::string, KDL::Frame > T_L_C_map_;
+    std::vector<Feature > empty_f_vec_;
+    std::vector<std::string > col_link_names_;*/
     }
 
 /****************************************************************************************************************************************/
