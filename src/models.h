@@ -29,6 +29,9 @@
 // Author: Dawid Seredynski
 //
 
+#ifndef MODELS_H__
+#define MODELS_H__
+
 #include <string>
 #include <stdlib.h>
 #include <stdio.h>
@@ -80,6 +83,10 @@ public:
 
 class CollisionModel {
 protected:
+    double p_dist_max_, r_dist_max_;
+
+public:
+
     class Feature {
     public:
         KDL::Frame T_L_F;
@@ -87,10 +94,6 @@ protected:
         double dist;
         double weight;
     };
-
-    double p_dist_max_, r_dist_max_;
-
-public:
 
     class QueryDensityElement {
     public:
@@ -114,6 +117,7 @@ public:
     const std::vector<std::string >& getLinkNamesCol() const;
 
     void getTransform(const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) const;
+    KDL::Frame getTransform(const std::string &link1_name, const std::string &link2_name) const;
 
     void addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
                         const KDL::Frame &T_W_L, const std::vector<ObjectModel::Feature > &ob_features,
@@ -146,4 +150,6 @@ public:
     void generateModel(const std::map<std::string, double> &q_map_before, const std::map<std::string, double> &q_map_grasp, double beta, int n_samples, double sigma_c);
     const std::map<std::string, double>& sample();
 };
+
+#endif  // MODELS_H__
 

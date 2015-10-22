@@ -28,7 +28,7 @@ include_directories(${catkin_INCLUDE_DIRS} ${Eigen_INCLUDE_DIRS} ${USE_OROCOS_IN
 
 add_executable(barrett_hand_sim_dart_test src/dart_test.cpp)
 add_executable(barrett_hand_sim_dart_grasp src/dart_grasp.cpp)
-add_executable(barrett_hand_sim_dart_model src/dart_model.cpp src/mesh_sampling.cpp src/models.cpp)
+add_executable(barrett_hand_sim_dart_model src/dart_model.cpp src/mesh_sampling.cpp src/models.cpp src/visual_debug.cpp)
 
 target_link_libraries(barrett_hand_sim_dart_test ${catkin_LIBRARIES} ${DART_LIBRARIES})
 target_link_libraries(barrett_hand_sim_dart_grasp ${catkin_LIBRARIES} ${DART_LIBRARIES})

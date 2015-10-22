@@ -62,6 +62,7 @@
 
 #include "mesh_sampling.h"
 #include "models.h"
+#include "visual_debug.h"
 
 const double PI(3.141592653589793);
 
@@ -352,44 +353,6 @@ int main(int argc, char** argv) {
 
     int m_id = 101;
 
-/*
-    // visualisation of the point clouds and the curvatures
-    for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
-        dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
-        if (sk->getName() == bh->getName()) {
-            continue;
-        }
-        for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
-            const std::string &link_name = sk->getBodyNode(bidx)->getName();
-            if (point_clouds_map.find( link_name ) == point_clouds_map.end()) {
-                continue;
-            }
-            pcl::PointCloud<pcl::PointNormal>::Ptr res = point_clouds_map[link_name];
-            pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures = point_pc_clouds_map[link_name];
-            KDL::Frame T_W_S = frames_map[link_name];
-
-            for (int pidx = 0; pidx < res->points.size(); pidx++) {
-                KDL::Vector v1 = T_W_S * KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z);
-                KDL::Vector v2 = T_W_S * (*features_map[link_name])[pidx] * KDL::Vector(0, 0, 0.01);
-                KDL::Vector v3 = T_W_S * (*features_map[link_name])[pidx] * KDL::Vector(0.01, 0, 0);
-//                double f = principalCurvatures->points[pidx].pc1 * 4.0;
-//                m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, "world");
-//                m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, "world");
-//                m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, "world");
-                m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(principalCurvatures->points[pidx].pc1, principalCurvatures->points[pidx].pc2, 0), 0, 1, 0, 1, 0.001, 0.001, 0.001, "world");
-            }
-        }
-    }
-    markers_pub.publish();
-
-    for (int i = 0; i < 100; i++) {
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
-
-    return 0;
-//*/
-
     // generate object model
     const std::string &ob_name = domino->getRootBodyNode()->getName();
     ObjectModel om;
@@ -450,148 +413,10 @@ int main(int argc, char** argv) {
 
     hm.generateModel(joint_q_map_before, joint_q_map, 1.0, 30, 0.05);
 
-/*
-    // visuzlise all features at the contact region
-    const std::string link_name_test("right_HandFingerTwoKnuckleThreeLink");
-    KDL::Frame T_E_L;
-    cm.getTransform("right_HandPalmLink", "right_HandFingerTwoKnuckleThreeLink", T_E_L);
-    for (int idx = 0; idx < cm.link_features_map[link_name_test].size(); idx++) {
-        const KDL::Frame &T_L_F = cm.link_features_map[link_name_test][idx].T_L_F;
-        double weight = cm.link_features_map[link_name_test][idx].weight;
-        KDL::Frame T_W_F = T_W_E * T_E_L * T_L_F;
-        KDL::Vector v1 = T_W_F * KDL::Vector();
-        KDL::Vector v2 = T_W_F * KDL::Vector(0, 0, 0.01);
-        KDL::Vector v3 = T_W_F * KDL::Vector(0.01, 0, 0);
-//        m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, "world");
-//        m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, "world");
-        double color = weight;
-        std::cout << weight << std::endl;
-        m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, color, color, color, 1, 0.001, 0.001, 0.001, "world");
-
-    }
-    markers_pub.addEraseMarkers(m_id, m_id+300);
-    markers_pub.publish();
-    for (int i = 0; i < 100; i++) {
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
-    return 0;
-//*/
-
-/*
-    // visuzlise all features on the object
-    for (int idx = 0; idx < (*om.features_).size(); idx++) {
-        const KDL::Frame &T_O_F = (*om.features_)[idx];
-        KDL::Vector v1 = T_O_F * KDL::Vector();
-        KDL::Vector v2 = T_O_F * KDL::Vector(0, 0, 0.01);
-        KDL::Vector v3 = T_O_F * KDL::Vector(0.01, 0, 0);
-        m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, ob_name);
-        m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, ob_name);
-    }
-    markers_pub.addEraseMarkers(m_id, m_id+300);
-    markers_pub.publish();
-    for (int i = 0; i < 100; i++) {
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
-    return 0;
-//*
-//*
-    // visualise all features
-    for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
-        const std::string &link_name = bh->getBodyNode(bidx)->getName();
-        if (cm.link_features_map.find( link_name ) == cm.link_features_map.end()) {
-            continue;
-        }
-        KDL::Frame T_W_L = frames_map[link_name];
-        for (int fidx = 0; fidx < cm.link_features_map[link_name].size(); fidx++) {
-            KDL::Frame T_W_F = T_W_L * cm.link_features_map[link_name][fidx].T_L_F;
-            KDL::Vector v1 = T_W_F * KDL::Vector();
-            KDL::Vector v2 = T_W_F * KDL::Vector(0, 0, 0.01);
-            KDL::Vector v3 = T_W_F * KDL::Vector(0.01, 0, 0);
-            double f = cm.link_features_map[link_name][fidx].pc1 * 4.0;
-            //double f = cm.link_features_map[link_name][fidx].dist;
-            m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, "world");
-            m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, "world");
-            m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, f, 1, f, 1, 0.001, 0.001, 0.001, "world");
-        }
-    }
-    markers_pub.addEraseMarkers(m_id, m_id+300);
-    markers_pub.publish();
-    for (int i = 0; i < 100; i++) {
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
-    return 0;
-//*/
-
-/*
-    // TEST: rejection sampling from von Mises-Fisher distribution for 3-D sphere
-    Eigen::Vector3d mean;
-    randomUnitSphere(mean);
-    m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(mean(0)*0.1, mean(1)*0.1, mean(2)*0.1 + 1.0), 1, 0, 0, 1, 0.001, 0.001, 0.001, "world");
-
-    double Cp = misesFisherKernelConstant(50.0, 3);
-    double pdf_mean = misesFisherKernel(mean, mean, 50.0, Cp);
-
-    int samples = 0;
-    for (int i = 0; i < 1000; i++) {
-        Eigen::Vector3d x;
-        int iterations = vonMisesFisherSample(mean, pdf_mean, 50.0, Cp, x);
-        if (iterations < 0) {
-            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
-        }
-
-        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(x(0)*0.1, x(1)*0.1, x(2)*0.1 + 1.0), 0, 0, 1, 1, 0.001, 0.001, 0.001, "world");
-        samples += iterations;
-    }
-    std::cout << "samples: " << samples << std::endl;
-
-    markers_pub.publish();
-    for (int i = 0; i < 100; i++) {
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
-    return 0;
-//*/
-
-/*
-    // TEST: rejection sampling from von Mises-Fisher distribution for 4-D sphere
-    Eigen::Vector4d mean;
-    randomUnitQuaternion(mean);
-    KDL::Frame fr = KDL::Frame(KDL::Rotation::Quaternion(mean(0), mean(1), mean(2), mean(3)));
-    KDL::Vector of(0,0,1);
-    m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector() + of, fr * KDL::Vector(0.15, 0, 0) + of, 1, 0, 0, 1, 0.002, "world");
-    m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector() + of, fr * KDL::Vector(0, 0.15, 0) + of, 0, 1, 0, 1, 0.002, "world");
-    m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector() + of, fr * KDL::Vector(0, 0, 0.15) + of, 0, 0, 1, 1, 0.002, "world");
-
-    double sigma = 100.0;
-    double Cp = misesFisherKernelConstant(sigma, 4);
-    double pdf_mean = misesFisherKernel(mean, mean, sigma, Cp);
-
-    int samples = 0;
-    for (int i = 0; i < 1000; i++) {
-        Eigen::Vector4d x;
-        int iterations = vonMisesFisherSample(mean, pdf_mean, sigma, Cp, x);
-        if (iterations < 0) {
-            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
-        }
-
-        KDL::Frame fr = KDL::Frame(KDL::Rotation::Quaternion(x(0), x(1), x(2), x(3)));
-        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector() + of, fr * KDL::Vector(0.1, 0, 0) + of, 1, 0, 0, 1, 0.001, "world");
-        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector() + of, fr * KDL::Vector(0, 0.1, 0) + of, 0, 1, 0, 1, 0.001, "world");
-        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector() + of, fr * KDL::Vector(0, 0, 0.1) + of, 0, 0, 1, 1, 0.001, "world");
-        samples += iterations;
-    }
-    std::cout << "samples: " << samples << std::endl;
-
-    markers_pub.publish();
-    for (int i = 0; i < 100; i++) {
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
-    return 0;
-//*/
+//    m_id = visualiseContactRegion( markers_pub, m_id, cm.link_features_map["right_HandFingerTwoKnuckleThreeLink"], T_W_E * cm.getTransform("right_HandPalmLink", "right_HandFingerTwoKnuckleThreeLink") );
+//    m_id = visualiseAllFeatures(markers_pub, m_id, om.getPointFeatures(), ob_name);
+//    m_id = visualiseRejectionSamplingVonMisesFisher3(markers_pub, m_id);
+//    m_id = visualiseRejectionSamplingVonMisesFisher4(markers_pub, m_id);
 
     std::vector<double > weights(om.getPointFeatures().size());
 
@@ -605,12 +430,13 @@ int main(int argc, char** argv) {
     om.setSamplerParameters(sigma_p, sigma_q, sigma_r);
     cm.setSamplerParameters(sigma_p, sigma_q, sigma_r);
 
+    // generate query density using multiple threads
     {
+        const int qd_sample_count = 50000;
         const int num_threads = cm.getLinkNamesCol().size();
         std::unique_ptr<std::thread[] > t(new std::thread[num_threads]);
         std::unique_ptr<std::vector<CollisionModel::QueryDensityElement >[] > qd_vec(new std::vector<CollisionModel::QueryDensityElement >[num_threads]);
 
-        const int qd_sample_count = 50000;
         for (int thread_id = 0; thread_id < num_threads; thread_id++) {
             qd_vec[thread_id].resize(qd_sample_count);
             std::vector<CollisionModel::QueryDensityElement > aaa;
@@ -623,77 +449,8 @@ int main(int argc, char** argv) {
         }
     }
 
-/*
-    // visualisation of query density
-    const std::string link_name_test("right_HandFingerTwoKnuckleThreeLink");
-    const std::vector<CollisionModel::QueryDensityElement > &qd_vec = cm.qd_map_[link_name_test];
-
-    for (std::vector<CollisionModel::QueryDensityElement >::const_iterator it = qd_vec.begin(); it != qd_vec.end(); it++) {
-        // visualisation
-        KDL::Frame fr(KDL::Rotation::Quaternion(it->q_(0), it->q_(1), it->q_(2), it->q_(3)), KDL::Vector(it->p_(0), it->p_(1), it->p_(2)));//KDL::Frame(KDL::Rotation::Quaternion(q(0), q(1), q(2), q(3)), KDL::Vector(p(0), p(1), p(2)));
-
-        double w = it->weight_ * 2000.0;
-        std::cout << it->weight_ << std::endl;
-//        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector(), fr * KDL::Vector(0.01, 0, 0), 1, 0, 0, 1, 0.0002, ob_name);
-//        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector(), fr * KDL::Vector(0, 0.01, 0), 0, 1, 0, 1, 0.0002, ob_name);
-//        m_id = markers_pub.addVectorMarker(m_id, fr * KDL::Vector(), fr * KDL::Vector(0, 0, 0.01), 0, 0, 1, 1, 0.0002, ob_name);
-//        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(p(0), p(1), p(2)), r(0)*4, 0, r(1)*4, 1, 0.001, 0.001, 0.001, ob_name);
-        m_id = markers_pub.addSinglePointMarkerCube(m_id, fr * KDL::Vector(), w, w, w, 1, 0.001, 0.001, 0.001, ob_name);
-//        m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(result_x, result_y, result_z), sum/10000000000.0, 0, 0, 1, 0.001, 0.001, 0.001, ob_name);
-//        std::cout << i << std::endl;
-    }
-    markers_pub.publish();
-    for (int i = 0; i < 100; i++) {
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
-
-    for (int i = 0; i < 100; i++) {
-        int idx = rand() % qd_vec.size();
-        KDL::Frame T_O_L(KDL::Rotation::Quaternion(qd_vec[idx].q_(0), qd_vec[idx].q_(1), qd_vec[idx].q_(2), qd_vec[idx].q_(3)), KDL::Vector(qd_vec[idx].p_(0), qd_vec[idx].p_(1), qd_vec[idx].p_(2)));
-        publishTransform(br, T_W_O * T_O_L, link_name_test, "world");
-        std::cout << qd_vec[idx].weight_ << std::endl;
-        ros::spinOnce();
-        ros::Duration(2.0).sleep();
-    }
-
-    return 0;
-//*/
-
-/*
-    // visualisation of query density
-    KDL::Rotation rot(KDL::Rotation::RotZ(-(-90.0+30.0)/180.0*PI));
-    double grid_size = 0.004;
-    std::list<std::pair<KDL::Frame, double> > test_list;
-    double max_cost = 0.0;
-    for (double x = -0.12; x < 0.12; x += grid_size) {
-        for (double y = -0.12; y < 0.12; y += grid_size) {
-            KDL::Frame T_O_L = KDL::Frame(rot, KDL::Vector(x, y, 0.0));
-            double cost = cm.getQueryDensity("right_HandFingerOneKnuckleThreeLink", T_O_L);
-            test_list.push_back(std::make_pair(T_O_L, cost));
-            if (cost > max_cost) {
-                max_cost = cost;
-            }
-        }
-    }
-
-    std::cout << "max_cost " << max_cost << std::endl;
-
-    for (std::list<std::pair<KDL::Frame, double> >::const_iterator it = test_list.begin(); it != test_list.end(); it++) {
-        double color = it->second / max_cost;
-        m_id = markers_pub.addSinglePointMarkerCube(m_id, it->first * KDL::Vector(), color, color, color, 1, grid_size, grid_size, grid_size, ob_name);
-    }
-
-    markers_pub.publish();
-    for (int i = 0; i < 100; i++) {
-        publishTransform(br, T_W_O * KDL::Frame(rot, KDL::Vector(0,0,-0.1)), "right_HandFingerOneKnuckleThreeLink", "world");
-
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
-
-    return 0;
-//*/
+//    m_id = visualiseQueryDensityParticles(markers_pub, m_id, cm.qd_map_["right_HandFingerTwoKnuckleThreeLink"], ob_name);
+//    m_id = visualiseQueryDensityFunction(br, markers_pub, m_id, cm, "right_HandFingerTwoKnuckleThreeLink", T_W_O, ob_name);
 
     double cost_max = 0.0;
     KDL::Frame T_W_E_best;
@@ -843,27 +600,5 @@ int main(int argc, char** argv) {
     }
 
     return 0;
-/*
-    // visualize the density pdf(p)
-    for (double x = -0.07; x < 0.07; x += 0.002) {
-        for (double y = -0.07; y < 0.07; y += 0.002) {
-            double sum = 0.0;
-            for (int pidx = 0; pidx < om.res->points.size(); pidx++) {
-                Eigen::Vector3d xx(x, y, 0.0);
-                Eigen::Vector3d xj(om.res->points[pidx].x, om.res->points[pidx].y, om.res->points[pidx].z);
-                sum += triVariateIsotropicGaussianKernel(xx, xj, 0.01);
-            }
-            sum /= om.res->points.size();
-            m_id = markers_pub.addSinglePointMarkerCube(m_id, KDL::Vector(x, y, 0.0), 0, 0, 1, 1, 0.005*sum, 0.005*sum, 0.005*sum, ob_name);
-        }
-    }
-    markers_pub.publish();
-    for (int i = 0; i < 100; i++) {
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
-
-    return 0;
-//*/
 }
 

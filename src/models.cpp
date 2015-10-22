@@ -73,6 +73,14 @@ static const double PI(3.141592653589793);
         T_L1_L2 = T_W_L1.Inverse() * T_W_L2;
     }
 
+    KDL::Frame CollisionModel::getTransform(const std::string &link1_name, const std::string &link2_name) const {
+        std::map<std::string, KDL::Frame >::const_iterator it1( frames_map_.find(link1_name) );
+        std::map<std::string, KDL::Frame >::const_iterator it2( frames_map_.find(link2_name) );
+        const KDL::Frame &T_W_L1 = it1->second;
+        const KDL::Frame &T_W_L2 = it2->second;
+        return T_W_L1.Inverse() * T_W_L2;
+    }
+
     void CollisionModel::addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
                         const KDL::Frame &T_W_L, const std::vector<ObjectModel::Feature > &ob_features,
                         const KDL::Frame &T_W_O) {
