@@ -81,12 +81,32 @@ public:
     const std::vector<Feature >& getPointFeatures() const;
 };
 
-class CollisionModel {
+class QueryDensity {
 protected:
-    double p_dist_max_, r_dist_max_;
+    double p_dist_max_;
+    double sigma_p_, sigma_q_, Cp_;
 
 public:
+    class QueryDensityElement {
+    public:
+        Eigen::Vector3d p_;
+        Eigen::Vector4d q_;
+        double weight_;
+    };
 
+    std::map<std::string, std::vector<QueryDensityElement > > qd_map_;
+
+    void setSamplerParameters(double sigma_p, double sigma_q);
+
+    void addQueryDensity(const std::string &link_name, const std::vector<QueryDensityElement > &qd_vec);
+    bool sampleQueryDensity(int seed, const std::string &link_name, Eigen::Vector3d &p, Eigen::Vector4d &q) const;
+    bool sampleQueryDensity(int seed, const std::string &link_name, KDL::Frame &T_O_L) const;
+    double getQueryDensity(const std::string &link_name, const Eigen::Vector3d &p, const Eigen::Vector4d &q) const;
+    double getQueryDensity(const std::string &link_name, const KDL::Frame &T_O_L) const;
+};
+
+class CollisionModel {
+public:
     class Feature {
     public:
         KDL::Frame T_L_F;
@@ -95,45 +115,29 @@ public:
         double weight;
     };
 
-    class QueryDensityElement {
-    public:
-        Eigen::Vector3d p_;
-        Eigen::Vector4d q_;
-        double weight_;
-    };
-    std::map<std::string, std::vector<Feature > > link_features_map;
-
-    std::map<std::string, double> joint_q_map_;
-    std::map<std::string, KDL::Frame > frames_map_;
-    std::vector<std::string > col_link_names;
-    std::map<std::string, std::vector<QueryDensityElement > > qd_map_;
-
+protected:
+    double p_dist_max_, r_dist_max_;
     double sigma_p_, sigma_q_, sigma_r_, Cp_;
+    std::map<std::string, std::vector<Feature > > link_features_map_;
+    std::vector<Feature > empty_f_vec_;
+    std::vector<std::string > col_link_names_;
+
+public:
 
     CollisionModel();
 
     const std::string& getRandomLinkNameCol() const;
-
     const std::vector<std::string >& getLinkNamesCol() const;
-
-    void getTransform(const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) const;
-    KDL::Frame getTransform(const std::string &link1_name, const std::string &link2_name) const;
+    const std::vector<Feature >& getLinkFeatures(const std::string &link_name) const;
 
     void addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
                         const KDL::Frame &T_W_L, const std::vector<ObjectModel::Feature > &ob_features,
                         const KDL::Frame &T_W_O);
 
-    void addQueryDensity(const std::string &link_name, const std::vector<QueryDensityElement > &qd_vec);
-
     void setSamplerParameters(double sigma_p, double sigma_q, double sigma_r);
 
     double getMarginalDensityForR(const std::string &link_name, const Eigen::Vector2d &r) const;
     bool sampleForR(int seed, const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q) const;
-
-    bool sampleQueryDensity(int seed, const std::string &link_name, Eigen::Vector3d &p, Eigen::Vector4d &q) const;
-    bool sampleQueryDensity(int seed, const std::string &link_name, KDL::Frame &T_O_L) const;
-    double getQueryDensity(const std::string &link_name, const Eigen::Vector3d &p, const Eigen::Vector4d &q) const;
-    double getQueryDensity(const std::string &link_name, const KDL::Frame &T_O_L) const;
 };
 
 class HandConfigurationModel {

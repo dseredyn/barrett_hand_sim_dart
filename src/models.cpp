@@ -57,28 +57,21 @@ static const double PI(3.141592653589793);
     }
 
     const std::string &CollisionModel::getRandomLinkNameCol() const {
-        int idx = rand() % col_link_names.size();
-        return col_link_names[idx];
+        int idx = rand() % col_link_names_.size();
+        return col_link_names_[idx];
     }
 
     const std::vector<std::string >& CollisionModel::getLinkNamesCol() const {
-        return col_link_names;
+        return col_link_names_;
     }
 
-    void CollisionModel::getTransform(const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) const {
-        std::map<std::string, KDL::Frame >::const_iterator it1( frames_map_.find(link1_name) );
-        std::map<std::string, KDL::Frame >::const_iterator it2( frames_map_.find(link2_name) );
-        const KDL::Frame &T_W_L1 = it1->second;
-        const KDL::Frame &T_W_L2 = it2->second;
-        T_L1_L2 = T_W_L1.Inverse() * T_W_L2;
-    }
-
-    KDL::Frame CollisionModel::getTransform(const std::string &link1_name, const std::string &link2_name) const {
-        std::map<std::string, KDL::Frame >::const_iterator it1( frames_map_.find(link1_name) );
-        std::map<std::string, KDL::Frame >::const_iterator it2( frames_map_.find(link2_name) );
-        const KDL::Frame &T_W_L1 = it1->second;
-        const KDL::Frame &T_W_L2 = it2->second;
-        return T_W_L1.Inverse() * T_W_L2;
+    const std::vector<CollisionModel::Feature >& CollisionModel::getLinkFeatures(const std::string &link_name) const {
+        std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map_.find(link_name);
+        if (it == link_features_map_.end()) {
+            std::cout << "ERROR: CollisionModel::getLinkFeatures( " << link_name << " ): given link has no collision data" << std::endl;
+            return empty_f_vec_;
+        }
+        return it->second;
     }
 
     void CollisionModel::addLinkContacts(double dist_range, const std::string &link_name, const pcl::PointCloud<pcl::PointNormal>::Ptr &res,
@@ -102,24 +95,20 @@ static const double PI(3.141592653589793);
             }
         }
         if ( link_pt.size() > 0 ) {
-            link_features_map[link_name].resize( link_pt.size() );
-            col_link_names.push_back(link_name);
+            link_features_map_[link_name].resize( link_pt.size() );
+            col_link_names_.push_back(link_name);
             int fidx = 0;
             for (std::list<std::pair<int, double> >::const_iterator it = link_pt.begin(); it != link_pt.end(); it++, fidx++) {
                 int poidx = it->first;
-                link_features_map[link_name][fidx].pc1 = ob_features[poidx].pc1_;
-                link_features_map[link_name][fidx].pc2 = ob_features[poidx].pc2_;
+                link_features_map_[link_name][fidx].pc1 = ob_features[poidx].pc1_;
+                link_features_map_[link_name][fidx].pc2 = ob_features[poidx].pc2_;
                 KDL::Frame T_W_F = T_W_O * ob_features[poidx].T_O_F_;
-                link_features_map[link_name][fidx].T_L_F = T_W_L.Inverse() * T_W_F;
+                link_features_map_[link_name][fidx].T_L_F = T_W_L.Inverse() * T_W_F;
                 double dist = it->second;
-                link_features_map[link_name][fidx].dist = dist;
-                link_features_map[link_name][fidx].weight = std::exp(-lambda * dist * dist);
+                link_features_map_[link_name][fidx].dist = dist;
+                link_features_map_[link_name][fidx].weight = std::exp(-lambda * dist * dist);
             }
         }
-    }
-
-    void CollisionModel::addQueryDensity(const std::string &link_name, const std::vector<QueryDensityElement > &qd_vec) {
-        qd_map_[link_name] = qd_vec;
     }
 
     void CollisionModel::setSamplerParameters(double sigma_p, double sigma_q, double sigma_r) {
@@ -152,8 +141,8 @@ static const double PI(3.141592653589793);
     }
 
     double CollisionModel::getMarginalDensityForR(const std::string &link_name, const Eigen::Vector2d &r) const {
-        std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.find( link_name );
-        if (it == link_features_map.end()) {
+        std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map_.find( link_name );
+        if (it == link_features_map_.end()) {
             return 0.0;
         }
         const std::vector<Feature > &features = it->second;
@@ -169,8 +158,8 @@ static const double PI(3.141592653589793);
     }
 
     bool CollisionModel::sampleForR(int seed, const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q) const {
-        std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map.find( link_name );
-        if (it == link_features_map.end()) {
+        std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map_.find( link_name );
+        if (it == link_features_map_.end()) {
             return false;
         }
         const std::vector<Feature > &features = it->second;
@@ -290,7 +279,30 @@ static const double PI(3.141592653589793);
         return true;
     }
 
-    bool CollisionModel::sampleQueryDensity(int seed, const std::string &link_name, Eigen::Vector3d &p, Eigen::Vector4d &q) const {
+/****************************************************************************************************************************************/
+
+    void QueryDensity::setSamplerParameters(double sigma_p, double sigma_q) {
+        sigma_p_ = sigma_p;
+        sigma_q_ = sigma_q;
+        Cp_ = misesFisherKernelConstant(sigma_q_, 4);
+
+        p_dist_max_ = 10000000.0;
+        double f_max = uniVariateIsotropicGaussianKernel(0.0, 0.0, sigma_p_);
+        for (double x = 0; x < 100.0; x += 0.0001) {
+            double f = uniVariateIsotropicGaussianKernel(x, 0.0, sigma_p_);
+            if (f < f_max * 0.1) {
+                p_dist_max_ = x;
+                std::cout << "f_max " << f_max << "   f_min " << f << "   p_dist_max_ " << p_dist_max_ << std::endl;
+                break;
+            }
+        }
+    }
+
+    void QueryDensity::addQueryDensity(const std::string &link_name, const std::vector<QueryDensityElement > &qd_vec) {
+        qd_map_[link_name] = qd_vec;
+    }
+
+    bool QueryDensity::sampleQueryDensity(int seed, const std::string &link_name, Eigen::Vector3d &p, Eigen::Vector4d &q) const {
         std::map<std::string, std::vector<QueryDensityElement > >::const_iterator it = qd_map_.find( link_name );
         if (it == qd_map_.end()) {
             return false;
@@ -407,7 +419,7 @@ static const double PI(3.141592653589793);
         return true;
     }
 
-    bool CollisionModel::sampleQueryDensity(int seed, const std::string &link_name, KDL::Frame &T_O_L) const {
+    bool QueryDensity::sampleQueryDensity(int seed, const std::string &link_name, KDL::Frame &T_O_L) const {
         Eigen::Vector3d p;
         Eigen::Vector4d q;
         bool result = sampleQueryDensity(seed, link_name, p, q);
@@ -415,7 +427,7 @@ static const double PI(3.141592653589793);
         return result;
     }
 
-    double CollisionModel::getQueryDensity(const std::string &link_name, const Eigen::Vector3d &p, const Eigen::Vector4d &q) const {
+    double QueryDensity::getQueryDensity(const std::string &link_name, const Eigen::Vector3d &p, const Eigen::Vector4d &q) const {
         std::map<std::string, std::vector<QueryDensityElement > >::const_iterator it = qd_map_.find( link_name );
         if (it == qd_map_.end()) {
             return 0.0;
@@ -448,7 +460,7 @@ static const double PI(3.141592653589793);
         return sum;
     }
 
-    double CollisionModel::getQueryDensity(const std::string &link_name, const KDL::Frame &T_O_L) const {
+    double QueryDensity::getQueryDensity(const std::string &link_name, const KDL::Frame &T_O_L) const {
         double qx, qy, qz, qw;
         T_O_L.M.GetQuaternion(qx, qy, qz, qw);
         return getQueryDensity(link_name, Eigen::Vector3d(T_O_L.p.x(), T_O_L.p.y(), T_O_L.p.z()), Eigen::Vector4d(qx, qy, qz, qw));

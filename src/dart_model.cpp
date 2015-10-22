@@ -104,7 +104,7 @@ void getFK(const dart::dynamics::SkeletonPtr &bh, const std::map<std::string, do
 }
 
 void generateQueryDensity(int seed, const std::string &link_name, const CollisionModel &cm, const ObjectModel &om,
-                            std::vector<CollisionModel::QueryDensityElement > &qd_vec) {
+                            std::vector<QueryDensity::QueryDensityElement > &qd_vec) {
         double sum_weights = 0.0;
         for (int i = 0; i < qd_vec.size(); i++) {
             Eigen::Vector3d p, p2;
@@ -380,8 +380,6 @@ int main(int argc, char** argv) {
     // generate collision model
     std::map<std::string, std::list<std::pair<int, double> > > link_pt_map;
     CollisionModel cm;
-    cm.joint_q_map_ = joint_q_map;
-    cm.frames_map_ = frames_map;
 
     std::list<std::string > gripper_link_names;
     for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
@@ -413,7 +411,7 @@ int main(int argc, char** argv) {
 
     hm.generateModel(joint_q_map_before, joint_q_map, 1.0, 30, 0.05);
 
-//    m_id = visualiseContactRegion( markers_pub, m_id, cm.link_features_map["right_HandFingerTwoKnuckleThreeLink"], T_W_E * cm.getTransform("right_HandPalmLink", "right_HandFingerTwoKnuckleThreeLink") );
+//    m_id = visualiseContactRegion( markers_pub, m_id, cm.getLinkFeatures("right_HandFingerTwoKnuckleThreeLink"), T_W_E * frames_map["right_HandPalmLink"].Inverse() * frames_map["right_HandFingerTwoKnuckleThreeLink"] );
 //    m_id = visualiseAllFeatures(markers_pub, m_id, om.getPointFeatures(), ob_name);
 //    m_id = visualiseRejectionSamplingVonMisesFisher3(markers_pub, m_id);
 //    m_id = visualiseRejectionSamplingVonMisesFisher4(markers_pub, m_id);
@@ -427,41 +425,45 @@ int main(int argc, char** argv) {
     std::random_device rd;
     std::mt19937 gen(rd());
 
+    QueryDensity qd;
+
     om.setSamplerParameters(sigma_p, sigma_q, sigma_r);
     cm.setSamplerParameters(sigma_p, sigma_q, sigma_r);
+    qd.setSamplerParameters(sigma_p, sigma_q);
 
     // generate query density using multiple threads
     {
         const int qd_sample_count = 50000;
         const int num_threads = cm.getLinkNamesCol().size();
         std::unique_ptr<std::thread[] > t(new std::thread[num_threads]);
-        std::unique_ptr<std::vector<CollisionModel::QueryDensityElement >[] > qd_vec(new std::vector<CollisionModel::QueryDensityElement >[num_threads]);
+        std::unique_ptr<std::vector<QueryDensity::QueryDensityElement >[] > qd_vec(new std::vector<QueryDensity::QueryDensityElement >[num_threads]);
 
         for (int thread_id = 0; thread_id < num_threads; thread_id++) {
             qd_vec[thread_id].resize(qd_sample_count);
-            std::vector<CollisionModel::QueryDensityElement > aaa;
+            std::vector<QueryDensity::QueryDensityElement > aaa;
             t[thread_id] = std::thread(generateQueryDensity, gen(), std::cref(cm.getLinkNamesCol()[thread_id]), std::cref(cm), std::cref(om), std::ref(qd_vec[thread_id]));
         }
 
         for (int thread_id = 0; thread_id < num_threads; ++thread_id) {
             t[thread_id].join();
-            cm.addQueryDensity(cm.getLinkNamesCol()[thread_id], qd_vec[thread_id]);
+            qd.addQueryDensity(cm.getLinkNamesCol()[thread_id], qd_vec[thread_id]);
         }
     }
 
 //    m_id = visualiseQueryDensityParticles(markers_pub, m_id, cm.qd_map_["right_HandFingerTwoKnuckleThreeLink"], ob_name);
-//    m_id = visualiseQueryDensityFunction(br, markers_pub, m_id, cm, "right_HandFingerTwoKnuckleThreeLink", T_W_O, ob_name);
+//    m_id = visualiseQueryDensityFunction(br, markers_pub, m_id, qd, "right_HandFingerTwoKnuckleThreeLink", T_W_O, ob_name);
 
     double cost_max = 0.0;
+    int good_grasps_count = 0;
     KDL::Frame T_W_E_best;
     std::map<std::string, double> q_best;
     for (int  i = 0; i < 4000; i++) {
         const std::string &link_name = cm.getRandomLinkNameCol();
         KDL::Frame T_O_L1;
-        cm.sampleQueryDensity(gen(), link_name, T_O_L1);
+        qd.sampleQueryDensity(gen(), link_name, T_O_L1);
         const std::map<std::string, double>& q_sample = hm.sample();
 
-        double cost = cm.getQueryDensity(link_name, T_O_L1);
+        double cost = qd.getQueryDensity(link_name, T_O_L1);
         for (std::vector<std::string >::const_iterator lit = cm.getLinkNamesCol().begin(); lit != cm.getLinkNamesCol().end(); lit++) {
             if (cost < 0.0000001) {
                 cost = 0.0;
@@ -473,7 +475,7 @@ int main(int argc, char** argv) {
             KDL::Frame T_L1_L2;
             getFK(bh, q_sample, link_name, (*lit), T_L1_L2);
             KDL::Frame T_O_L2( T_O_L1 * T_L1_L2 );
-            cost *= cm.getQueryDensity((*lit), T_O_L2);
+            cost *= qd.getQueryDensity((*lit), T_O_L2);
         }
 
         KDL::Frame T_L1_E;
@@ -485,13 +487,18 @@ int main(int argc, char** argv) {
             q_best = q_sample;
         }
 
+        if (cost > 0.0000001) {
+            good_grasps_count++;
+        }
+
         if ((i % 1000) == 0) {
             std::cout << i << "   " << cost << std::endl;
         }
     }
 
-    std::cout << "best: " << cost_max << std::endl;
+    std::cout << "best: " << cost_max << "   good_grasps_count " << good_grasps_count << std::endl;
 
+    return 0;
     double temperature = 100.0;
 
     // visualisation
@@ -585,7 +592,7 @@ int main(int argc, char** argv) {
             KDL::Frame T_E_L;
             getFK(bh, q_new, "right_HandPalmLink", (*lit), T_E_L);
             KDL::Frame T_O_L( T_W_O.Inverse() * T_W_E_new * T_E_L );
-            cost *= cm.getQueryDensity((*lit), T_O_L);
+            cost *= qd.getQueryDensity((*lit), T_O_L);
         }
         double trPr = getTransitionProbability(cost_max, cost, temperature);
         std::cout << "temp: " << temperature << "   cost: " << cost_max << "   cost_new: " << cost << "   trPr: " << trPr << std::endl;

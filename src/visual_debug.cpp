@@ -160,8 +160,8 @@ int visualiseRejectionSamplingVonMisesFisher4(MarkerPublisher &markers_pub, int 
     return 0;
 }
 
-int visualiseQueryDensityParticles(MarkerPublisher &markers_pub, int m_id, const std::vector<CollisionModel::QueryDensityElement > &qd_vec, const std::string &frame_id) {
-    for (std::vector<CollisionModel::QueryDensityElement >::const_iterator it = qd_vec.begin(); it != qd_vec.end(); it++) {
+int visualiseQueryDensityParticles(MarkerPublisher &markers_pub, int m_id, const std::vector<QueryDensity::QueryDensityElement > &qd_vec, const std::string &frame_id) {
+    for (std::vector<QueryDensity::QueryDensityElement >::const_iterator it = qd_vec.begin(); it != qd_vec.end(); it++) {
         // visualisation
         KDL::Frame fr(KDL::Rotation::Quaternion(it->q_(0), it->q_(1), it->q_(2), it->q_(3)), KDL::Vector(it->p_(0), it->p_(1), it->p_(2)));
         double w = it->weight_ * 2000.0;
@@ -192,7 +192,7 @@ int visualiseQueryDensityParticles(MarkerPublisher &markers_pub, int m_id, const
     return m_id;
 }
 
-int visualiseQueryDensityFunction(tf::TransformBroadcaster &br, MarkerPublisher &markers_pub, int m_id, const CollisionModel &cm, const std::string &link_name, const KDL::Frame &T_W_O, const std::string &frame_id) {
+int visualiseQueryDensityFunction(tf::TransformBroadcaster &br, MarkerPublisher &markers_pub, int m_id, const QueryDensity &qd, const std::string &link_name, const KDL::Frame &T_W_O, const std::string &frame_id) {
     // visualisation of query density
     KDL::Rotation rot(KDL::Rotation::RotZ(-(-90.0+30.0)/180.0*PI));
     double grid_size = 0.004;
@@ -201,7 +201,7 @@ int visualiseQueryDensityFunction(tf::TransformBroadcaster &br, MarkerPublisher 
     for (double x = -0.12; x < 0.12; x += grid_size) {
         for (double y = -0.12; y < 0.12; y += grid_size) {
             KDL::Frame T_O_L = KDL::Frame(rot, KDL::Vector(x, y, 0.0));
-            double cost = cm.getQueryDensity(link_name, T_O_L);
+            double cost = qd.getQueryDensity(link_name, T_O_L);
             test_list.push_back(std::make_pair(T_O_L, cost));
             if (cost > max_cost) {
                 max_cost = cost;
