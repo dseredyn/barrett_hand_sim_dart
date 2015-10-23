@@ -139,49 +139,11 @@ void generateQueryDensity(int seed, const std::string &link_name, const boost::s
 }
 
 int main(int argc, char** argv) {
-/*
-    CollisionModel::Feature ft;
-
-    std::ifstream fl;
-    fl.open("aaa.txt");
-    fl >> ft;
-    fl.close();
-
-    std::cout << ft << std::endl;
-
-    ft.T_C_F = KDL::Frame(KDL::Vector(1,2,3));
-
-
-    std::ofstream fl;
-    fl.open("aaa.txt");
-    fl << ft << "\n";
-    fl.close();
-
-    return 0;
-*/
     srand ( time(NULL) );
 
-    // read grasp state from the input
-    double px, py, pz, qx, qy, qz, qw;
-    std::cin >> px >> py >> pz >> qx >> qy >> qz >> qw;
+    boost::shared_ptr<GraspState > gs = GraspState::readFromXml("gs.xml");
 
-    KDL::Frame T_E_O( KDL::Rotation::Quaternion(qx, qy, qz, qw), KDL::Vector(px, py, pz) );
-    T_E_O.M.GetQuaternion(qx, qy, qz, qw);
-    std::cout << T_E_O.p.x() << " " << T_E_O.p.y() << " " << T_E_O.p.z() << " " << qx << " " << qy << " " << qz << " " << qw << std::endl;
-
-    std::map<std::string, double> joint_q_map;
-    for (int i = 0; i < 8; i++) {
-        std::string joint_name;
-        double q;
-        std::cin >> joint_name >> q;
-        joint_q_map[joint_name] = q;
-        std::cout << joint_name << " " << q << std::endl;
-    }
-
-    std::string object_urdf;
-    std::cin >> object_urdf;
-
-    std::cout << object_urdf << std::endl;
+    std::cout << gs->path_urdf_ << std::endl;
 
     ros::init(argc, argv, "dart_test");
 
@@ -213,7 +175,7 @@ int main(int argc, char** argv) {
     KDLToEigenTf(KDL::Frame( KDL::Rotation::RotX(180.0/180.0*PI), KDL::Vector(0.0, 0.0, 0.22) ), tf);
     bh->getJoint(0)->setTransformFromParentBodyNode(tf);
 
-    dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(package_path_sim + object_urdf) );
+    dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(package_path_sim + gs->path_urdf_) );
     KDLToEigenTf(KDL::Frame( KDL::Vector(0.0, 0.0, 0.07) ), tf);
     domino->getJoint(0)->setTransformFromParentBodyNode(tf);
 
@@ -225,7 +187,7 @@ int main(int argc, char** argv) {
     Eigen::Vector3d grav(0,0,0);
     world->setGravity(grav);
 
-    for (std::map<std::string, double>::const_iterator it = joint_q_map.begin(); it != joint_q_map.end(); it++) {
+    for (std::map<std::string, double>::const_iterator it = gs->q_map_.begin(); it != gs->q_map_.end(); it++) {
         dart::dynamics::Joint *j = bh->getJoint( it-> first );
         j->setPosition( 0, it->second );
     }
@@ -233,7 +195,7 @@ int main(int argc, char** argv) {
     tf = bh->getBodyNode("right_HandPalmLink")->getTransform();
     KDL::Frame T_W_E;
     EigenTfToKDL(tf, T_W_E);
-    KDL::Frame T_W_O = T_W_E * T_E_O;
+    KDL::Frame T_W_O = T_W_E * gs->T_E_O_;
 
     KDLToEigenTf(T_W_O, tf);
     domino->getJoint(0)->setTransformFromParentBodyNode(tf);
@@ -425,7 +387,7 @@ int main(int argc, char** argv) {
 
     // generate hand configuration model
     boost::shared_ptr<HandConfigurationModel > hm(new HandConfigurationModel);
-    std::map<std::string, double> joint_q_map_before = joint_q_map;
+    std::map<std::string, double> joint_q_map_before( gs->q_map_ );
 
     double angleDiffKnuckleTwo = 15.0/180.0*PI;
     joint_q_map_before["right_HandFingerOneKnuckleTwoJoint"] -= angleDiffKnuckleTwo;
@@ -435,9 +397,11 @@ int main(int argc, char** argv) {
     joint_q_map_before["right_HandFingerTwoKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
     joint_q_map_before["right_HandFingerThreeKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
 
-    hm->generateModel(joint_q_map_before, joint_q_map, 1.0, 30, 0.05);
+    hm->generateModel(joint_q_map_before, gs->q_map_, 1.0, 30, 0.05);
 
     hm->writeToXml("hm.xml");
+    cm->writeToXml("cm.xml");
+
 
 //    {
 //        KDL::Frame T_L_C;

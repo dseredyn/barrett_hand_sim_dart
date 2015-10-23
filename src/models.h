@@ -186,5 +186,15 @@ public:
     void writeToXml(const std::string &filename) const;
 };
 
+class GraspState {
+public:
+    KDL::Frame T_E_O_;
+    std::map<std::string, double > q_map_;
+    std::string path_urdf_;
+
+    static boost::shared_ptr<GraspState > readFromXml(const std::string &filename);
+    void writeToXml(const std::string &filename) const;
+};
+
 #endif  // MODELS_H__
 

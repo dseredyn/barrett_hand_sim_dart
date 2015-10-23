@@ -1207,3 +1207,77 @@ double HandConfigurationModel::getDensity(const std::map<std::string, double>& q
 	    doc.SaveFile( filename );
     }
 
+/*******************************************************************************************************************************************************/
+
+    boost::shared_ptr<GraspState > GraspState::readFromXml(const std::string &filename) {
+        TiXmlDocument doc( filename );
+        doc.LoadFile();
+        std::unique_ptr<GraspState > u_gs(new GraspState);
+
+	    if (doc.Error())
+	    {
+		    std::cout << "ERROR: GraspState::readFromXml: " << doc.ErrorDesc() << std::endl;
+		    doc.ClearError();
+		    return boost::shared_ptr<GraspState >(NULL);
+	    }
+
+    	TiXmlElement *elementGS = doc.FirstChildElement("GraspState");
+	    if (!elementGS)
+	    {
+		    std::cout << "ERROR: GraspState::readFromXml: " << "Could not find the 'GraspState' element in the xml file" << std::endl;
+		    return boost::shared_ptr<GraspState >(NULL);
+	    }
+
+    	// Get model parameters
+    	const char *str = elementGS->Attribute("TEO");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: GraspState::readFromXml: TEO" << std::endl;
+    		return boost::shared_ptr<GraspState >(NULL);
+    	}
+        u_gs->T_E_O_ = string2frameKdl(str);
+
+        str = elementGS->Attribute("path");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: GraspState::readFromXml: path" << std::endl;
+    		return boost::shared_ptr<GraspState >(NULL);
+    	}
+        u_gs->path_urdf_ = str;
+
+	    for (TiXmlElement* elementJ = elementGS->FirstChildElement("Joint"); elementJ; elementJ = elementJ->NextSiblingElement("Joint")) {
+        	str = elementJ->Attribute("name");
+            if (!str) {
+		        std::cout << "ERROR: GraspState::readFromXml: Joint name" << std::endl;
+        		return boost::shared_ptr<GraspState >(NULL);
+            }
+            std::string joint_name( str );
+
+        	str = elementJ->Attribute("value");
+            if (!str) {
+		        std::cout << "ERROR: GraspState::readFromXml: Joint value" << std::endl;
+        		return boost::shared_ptr<GraspState >(NULL);
+            }
+            u_gs->q_map_[joint_name] = string2double( str );
+	    }
+
+        return boost::shared_ptr<GraspState >(new GraspState(*u_gs.get()));
+    }
+
+    void GraspState::writeToXml(const std::string &filename) const {
+        TiXmlDocument doc;
+	    TiXmlDeclaration * decl = new TiXmlDeclaration( "1.0", "", "" );
+	    doc.LinkEndChild( decl );
+	    TiXmlElement * elementGS = new TiXmlElement( "GraspState" );
+        elementGS->SetAttribute("TEO", frameKdl2string(T_E_O_));
+        elementGS->SetAttribute("path", path_urdf_);
+        for (std::map<std::string, double >::const_iterator it = q_map_.begin(); it != q_map_.end(); it++) {
+    	    TiXmlElement * elementJ = new TiXmlElement( "Joint" );
+            elementJ->SetAttribute("name", it->first);
+            elementJ->SetAttribute("value", double2string(it->second));
+    	    elementGS->LinkEndChild( elementJ );
+        }
+	    doc.LinkEndChild( elementGS );
+	    doc.SaveFile( filename );
+    }
+
