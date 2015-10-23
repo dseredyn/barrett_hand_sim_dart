@@ -751,7 +751,6 @@ static const double PI(3.141592653589793);
         }
 	    doc.LinkEndChild( elementQD );
 	    doc.SaveFile( filename );
-
     }
 
     bool QueryDensity::QueryDensityElement::operator== (const QueryDensity::QueryDensityElement &qd) const {
@@ -1012,43 +1011,44 @@ const std::vector<ObjectModel::Feature >& ObjectModel::getPointFeatures() const 
 
 /******************************************************************************************************************/
 
-HandConfigurationModel::HandConfigurationModel() :
-    gen_(rd_())
-{
+HandConfigurationModel::HandConfigurationModel() {
 }
 
 void HandConfigurationModel::generateModel(const std::map<std::string, double> &q_map_before, const std::map<std::string, double> &q_map_grasp, double beta, int n_samples, double sigma_c) {
     int idx = 0;
-    qb_.resize( q_map_before.size() );
-    qg_.resize( q_map_before.size() );
+    Eigen::VectorXd qb(q_map_before.size()), qg(q_map_before.size());
+
+//    qb_.resize( q_map_before.size() );
+//    qg_.resize( q_map_before.size() );
     joint_names_.resize( q_map_before.size() );
     for (std::map<std::string, double>::const_iterator it = q_map_before.begin(); it != q_map_before.end(); it++, idx++) {
-        qb_(idx) = it->second;
+        qb(idx) = it->second;
         joint_names_[idx] = it->first;
 
         std::map<std::string, double>::const_iterator it_g = q_map_grasp.find(it->first);
         if (it_g == q_map_grasp.end()) {
             std::cout << "ERROR: HandConfigurationModel::generateModel: joint name " << it->first << " not in q_map_grasp" << std::endl;
         }
-        qg_(idx) = it_g->second;
+        qg(idx) = it_g->second;
     }
 
     samples_.resize(n_samples, Eigen::VectorXd(q_map_before.size()));
     for (int i = 0; i < n_samples; i++) {
         double f = static_cast<double >(i) / static_cast<double >(n_samples-1);
         double gamma = (-beta) * (1.0 - f) + beta * f;
-        samples_[i] = (1.0 - gamma) * qg_ + gamma * qb_;
+        samples_[i] = (1.0 - gamma) * qg + gamma * qb;
     }
 
     sigma_c_ = sigma_c;
 }
 
-void HandConfigurationModel::sample(std::map<std::string, double> &q_ret_) {
+void HandConfigurationModel::sample(int seed, std::map<std::string, double> &q_ret) const {
     const int n_samples = samples_.size();
     std::vector<double > weights(n_samples, 1.0 / static_cast<double >(n_samples));
+    std::mt19937 gen_(seed);
 
-    Eigen::VectorXd result(qg_.size());
-    for (int qidx = 0; qidx < qg_.size(); qidx++) {
+    Eigen::VectorXd result(joint_names_.size());
+    for (int qidx = 0; qidx < joint_names_.size(); qidx++) {
         double sum = 0.0;
         for (int pidx = 0; pidx < n_samples; pidx++) {
             sum += weights[pidx];
@@ -1076,7 +1076,7 @@ void HandConfigurationModel::sample(std::map<std::string, double> &q_ret_) {
 
 
     for (int qidx = 0; qidx < joint_names_.size(); qidx++) {
-        q_ret_[joint_names_[qidx]] = result(qidx);
+        q_ret[joint_names_[qidx]] = result(qidx);
     }
 }
 
@@ -1084,7 +1084,7 @@ double HandConfigurationModel::getDensity(const std::map<std::string, double>& q
     const int n_samples = samples_.size();
     std::vector<double > weights(n_samples, 1.0);
 
-    Eigen::VectorXd q(qg_.size());
+    Eigen::VectorXd q(joint_names_.size());
     for (int qidx = 0; qidx < joint_names_.size(); qidx++) {
         std::map<std::string, double>::const_iterator it = q_map.find(joint_names_[qidx]);
         if (it == q_map.end()) {
@@ -1093,7 +1093,7 @@ double HandConfigurationModel::getDensity(const std::map<std::string, double>& q
         q(qidx) = it->second;
     }
 
-    for (int qidx = 0; qidx < qg_.size(); qidx++) {
+    for (int qidx = 0; qidx < joint_names_.size(); qidx++) {
         for (int pidx = 0; pidx < n_samples; pidx++) {
             weights[pidx] *= uniVariateIsotropicGaussianKernel(q(qidx), samples_[pidx][qidx], sigma_c_);
         }
@@ -1106,4 +1106,104 @@ double HandConfigurationModel::getDensity(const std::map<std::string, double>& q
 
     return sum;
 }
+
+    boost::shared_ptr<HandConfigurationModel > HandConfigurationModel::readFromXml(const std::string &filename) {
+        TiXmlDocument doc( filename );
+        doc.LoadFile();
+        std::unique_ptr<HandConfigurationModel > u_hm(new HandConfigurationModel);
+
+	    if (doc.Error())
+	    {
+		    std::cout << "ERROR: HandConfigurationModel::readFromXml: " << doc.ErrorDesc() << std::endl;
+		    doc.ClearError();
+		    return boost::shared_ptr<HandConfigurationModel >(NULL);
+	    }
+
+    	TiXmlElement *elementHCM = doc.FirstChildElement("HandConfigurationModel");
+	    if (!elementHCM)
+	    {
+		    std::cout << "ERROR: HandConfigurationModel::readFromXml: " << "Could not find the 'HandConfigurationModel' element in the xml file" << std::endl;
+		    return boost::shared_ptr<HandConfigurationModel >(NULL);
+	    }
+
+    	// Get model parameters
+    	const char *str = elementHCM->Attribute("sigma_c");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: HandConfigurationModel::readFromXml: sigma_c" << std::endl;
+    		return boost::shared_ptr<HandConfigurationModel >(NULL);
+    	}
+        u_hm->sigma_c_ = string2double(str);
+
+        int joints_count = 0;
+	    for (TiXmlElement* elementJ = elementHCM->FirstChildElement("Joint"); elementJ; elementJ = elementJ->NextSiblingElement("Joint"), joints_count++) {
+        }
+        u_hm->joint_names_.resize(joints_count);
+
+	    for (TiXmlElement* elementJ = elementHCM->FirstChildElement("Joint"); elementJ; elementJ = elementJ->NextSiblingElement("Joint")) {
+        	str = elementJ->Attribute("name");
+            if (!str) {
+		        std::cout << "ERROR: CollisionModel::readFromXml: LinkQueryDensity name" << std::endl;
+        		return boost::shared_ptr<HandConfigurationModel >(NULL);
+            }
+            std::string joint_name( str );
+
+        	str = elementJ->Attribute("idx");
+            if (!str) {
+		        std::cout << "ERROR: CollisionModel::readFromXml: LinkQueryDensity name" << std::endl;
+        		return boost::shared_ptr<HandConfigurationModel >(NULL);
+            }
+            int qidx = string2int( str );
+            u_hm->joint_names_[qidx] = joint_name;
+	    }
+
+        int samples_count = 0;
+	    for (TiXmlElement* elementS = elementHCM->FirstChildElement("Sample"); elementS; elementS = elementS->NextSiblingElement("Sample"), samples_count++) {
+        }
+        u_hm->samples_.resize(samples_count);
+
+        samples_count = 0;
+	    for (TiXmlElement* elementS = elementHCM->FirstChildElement("Sample"); elementS; elementS = elementS->NextSiblingElement("Sample"), samples_count++) {
+        	str = elementS->Attribute("value");
+            if (!str) {
+		        std::cout << "ERROR: CollisionModel::readFromXml: LinkQueryDensity name" << std::endl;
+        		return boost::shared_ptr<HandConfigurationModel >(NULL);
+            }
+            u_hm->samples_[samples_count].resize(joints_count);
+            std::istringstream strs(str);
+            for (int qidx = 0; qidx < joints_count; qidx++) {
+                double v;
+                strs >> v;
+                u_hm->samples_[samples_count][qidx] = v;
+            }
+        }
+
+        return boost::shared_ptr<HandConfigurationModel >(new HandConfigurationModel(*u_hm.get()));
+    }
+
+    void HandConfigurationModel::writeToXml(const std::string &filename) const {
+        TiXmlDocument doc;
+	    TiXmlDeclaration * decl = new TiXmlDeclaration( "1.0", "", "" );
+	    doc.LinkEndChild( decl );
+	    TiXmlElement * elementHCM = new TiXmlElement( "HandConfigurationModel" );
+        elementHCM->SetAttribute("sigma_c", double2string(sigma_c_));
+        for (int qidx = 0; qidx < joint_names_.size(); qidx++) {
+    	    TiXmlElement * elementJ = new TiXmlElement( "Joint" );
+            elementJ->SetAttribute("idx", qidx);
+            elementJ->SetAttribute("name", joint_names_[qidx]);
+    	    elementHCM->LinkEndChild( elementJ );
+        }
+
+        for (std::vector<Eigen::VectorXd >::const_iterator it = samples_.begin(); it != samples_.end(); it++) {
+    	    TiXmlElement * elementS = new TiXmlElement( "Sample" );
+            std::ostringstream strs;
+            for (int qidx = 0; qidx < joint_names_.size(); qidx++) {
+                strs << (*it)(qidx) << " ";
+            }
+            elementS->SetAttribute("value", strs.str());
+    	    elementHCM->LinkEndChild( elementS );
+        }
+	    doc.LinkEndChild( elementHCM );
+	    doc.SaveFile( filename );
+    }
 

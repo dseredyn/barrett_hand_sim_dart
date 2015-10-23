@@ -173,18 +173,17 @@ public:
 
 class HandConfigurationModel {
 protected:
-    Eigen::VectorXd qb_, qg_;
     std::vector<std::string > joint_names_;
-    std::map<std::string, double> q_ret_;
     std::vector<Eigen::VectorXd > samples_;
-    std::random_device rd_;
-    std::mt19937 gen_;
     double sigma_c_;
 public:
     HandConfigurationModel();
     void generateModel(const std::map<std::string, double> &q_map_before, const std::map<std::string, double> &q_map_grasp, double beta, int n_samples, double sigma_c);
-    void sample(std::map<std::string, double> &q_ret_);
+    void sample(int seed, std::map<std::string, double> &q_ret_) const;
     double getDensity(const std::map<std::string, double>& q_map) const;
+
+    static boost::shared_ptr<HandConfigurationModel > readFromXml(const std::string &filename);
+    void writeToXml(const std::string &filename) const;
 };
 
 #endif  // MODELS_H__

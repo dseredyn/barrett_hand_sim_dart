@@ -424,7 +424,7 @@ int main(int argc, char** argv) {
     }
 
     // generate hand configuration model
-    HandConfigurationModel hm;
+    boost::shared_ptr<HandConfigurationModel > hm(new HandConfigurationModel);
     std::map<std::string, double> joint_q_map_before = joint_q_map;
 
     double angleDiffKnuckleTwo = 15.0/180.0*PI;
@@ -435,7 +435,10 @@ int main(int argc, char** argv) {
     joint_q_map_before["right_HandFingerTwoKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
     joint_q_map_before["right_HandFingerThreeKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
 
-    hm.generateModel(joint_q_map_before, joint_q_map, 1.0, 30, 0.05);
+    hm->generateModel(joint_q_map_before, joint_q_map, 1.0, 30, 0.05);
+
+    hm->writeToXml("hm.xml");
+
 //    {
 //        KDL::Frame T_L_C;
 //        cm->getT_L_C("right_HandFingerTwoKnuckleThreeLink", T_L_C);
@@ -511,7 +514,7 @@ int main(int argc, char** argv) {
         cm->getT_L_C(link_name, T_L1_C);
         T_O_L1 = T_O_C1 * T_L1_C.Inverse();
         std::map<std::string, double> q_sample;
-        hm.sample(q_sample);
+        hm->sample(gen(), q_sample);
 
         double cost = qd->getQueryDensity(link_name, T_O_L1 * T_L1_C);
         for (std::vector<std::string >::const_iterator lit = cm->getLinkNamesCol().begin(); lit != cm->getLinkNamesCol().end(); lit++) {
@@ -633,7 +636,7 @@ int main(int argc, char** argv) {
             it->second = std::min( j->getPositionUpperLimit( 0 ), it->second );
         }
 
-        double cost = hm.getDensity(q_new);
+        double cost = hm->getDensity(q_new);
         for (std::vector<std::string >::const_iterator lit = cm->getLinkNamesCol().begin(); lit != cm->getLinkNamesCol().end(); lit++) {
             if (cost < 0.0000001) {
                 cost = 0.0;
