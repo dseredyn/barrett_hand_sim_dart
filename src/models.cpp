@@ -51,6 +51,8 @@
 #include <pcl/common/pca.h>
 #include <pcl/features/principal_curvatures.h>
 
+#include <tinyxml.h>
+
 #include "models.h"
 
 static const double PI(3.141592653589793);
@@ -69,20 +71,20 @@ static const double PI(3.141592653589793);
     }
 
     const std::vector<CollisionModel::Feature >& CollisionModel::getLinkFeatures(const std::string &link_name) const {
-        std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map_.find(link_name);
-        if (it == link_features_map_.end()) {
+        std::map<std::string, LinkCollisionModel >::const_iterator it = link_models_map_.find(link_name);
+        if (it == link_models_map_.end()) {
             std::cout << "ERROR: CollisionModel::getLinkFeatures( " << link_name << " ): given link has no collision data" << std::endl;
             return empty_f_vec_;
         }
-        return it->second;
+        return it->second.features_;
     }
 
     bool CollisionModel::getT_L_C(const std::string &link_name, KDL::Frame &T_L_C) const {
-        std::map<std::string, KDL::Frame >::const_iterator it = T_L_C_map_.find(link_name);
-        if (it == T_L_C_map_.end()) {
+        std::map<std::string, LinkCollisionModel >::const_iterator it = link_models_map_.find(link_name);
+        if (it == link_models_map_.end()) {
             return false;
         }
-        T_L_C = it->second;
+        T_L_C = it->second.T_L_C_;
         return true;
     }
 
@@ -107,7 +109,7 @@ static const double PI(3.141592653589793);
             }
         }
         if ( link_pt.size() > 0 ) {
-            link_features_map_[link_name].resize( link_pt.size() );
+            link_models_map_[link_name].features_.resize( link_pt.size() );
             std::vector<KDL::Frame > T_L_F_vec( link_pt.size() );
             col_link_names_.push_back(link_name);
             int fidx = 0;
@@ -115,20 +117,20 @@ static const double PI(3.141592653589793);
             double sum_weight = 0.0;
             for (std::list<std::pair<int, double> >::const_iterator it = link_pt.begin(); it != link_pt.end(); it++, fidx++) {
                 int poidx = it->first;
-                link_features_map_[link_name][fidx].pc1 = ob_features[poidx].pc1_;
-                link_features_map_[link_name][fidx].pc2 = ob_features[poidx].pc2_;
+                link_models_map_[link_name].features_[fidx].pc1 = ob_features[poidx].pc1_;
+                link_models_map_[link_name].features_[fidx].pc2 = ob_features[poidx].pc2_;
                 KDL::Frame T_W_F = T_W_O * ob_features[poidx].T_O_F_;
                 T_L_F_vec[fidx] = T_W_L.Inverse() * T_W_F;
                 double dist = it->second;
-                link_features_map_[link_name][fidx].dist = dist;
+                link_models_map_[link_name].features_[fidx].dist = dist;
                 double weight = std::exp(-lambda * dist * dist);
-                link_features_map_[link_name][fidx].weight = weight;
+                link_models_map_[link_name].features_[fidx].weight = weight;
                 col_pt = col_pt + weight * T_L_F_vec[fidx].p;
                 sum_weight += weight;
             }
-            T_L_C_map_[link_name] = KDL::Frame(col_pt / sum_weight);
-            for (int fidx = 0; fidx < link_features_map_[link_name].size(); fidx++) {
-                link_features_map_[link_name][fidx].T_C_F = T_L_C_map_[link_name].Inverse() * T_L_F_vec[fidx];
+            link_models_map_[link_name].T_L_C_ = KDL::Frame(col_pt / sum_weight);
+            for (int fidx = 0; fidx < link_models_map_[link_name].features_.size(); fidx++) {
+                link_models_map_[link_name].features_[fidx].T_C_F = link_models_map_[link_name].T_L_C_.Inverse() * T_L_F_vec[fidx];
             }
         }
     }
@@ -163,11 +165,11 @@ static const double PI(3.141592653589793);
     }
 
     double CollisionModel::getMarginalDensityForR(const std::string &link_name, const Eigen::Vector2d &r) const {
-        std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map_.find( link_name );
-        if (it == link_features_map_.end()) {
+        std::map<std::string, LinkCollisionModel >::const_iterator it = link_models_map_.find( link_name );
+        if (it == link_models_map_.end()) {
             return 0.0;
         }
-        const std::vector<Feature > &features = it->second;
+        const std::vector<Feature > &features = it->second.features_;
 
         double sum = 0.0;
         for (int pidx = 0; pidx < features.size(); pidx++) {
@@ -180,11 +182,11 @@ static const double PI(3.141592653589793);
     }
 
     bool CollisionModel::sampleForR(int seed, const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q) const {
-        std::map<std::string, std::vector<Feature > >::const_iterator it = link_features_map_.find( link_name );
-        if (it == link_features_map_.end()) {
+        std::map<std::string, LinkCollisionModel >::const_iterator it = link_models_map_.find( link_name );
+        if (it == link_models_map_.end()) {
             return false;
         }
-        const std::vector<Feature > &features = it->second;
+        const std::vector<Feature > &features = it->second.features_;
         std::mt19937 gen_(seed);
 
         const int n_points = features.size();
@@ -309,40 +311,145 @@ static const double PI(3.141592653589793);
     }
 
     std::ostream& operator<< (std::ostream& stream, const CollisionModel::Feature& f) {
-//        double qx, qy, qz, qw;
-//        f.T_C_F.M.GetQuaternion(qx, qy, qz, qw);
-//        stream << f.T_C_F.p.x() << " " << f.T_C_F.p.y() << " " << f.T_C_F.p.z() << " " <<
-//                qx << " " << qy << " " << qz << " " << qw << " " <<  f.pc1 << " " <<  f.pc2 << " " <<
-//                f.dist << " " << f.weight;
-
         stream << f.T_C_F << " " <<  f.pc1 << " " <<  f.pc2 << " " << f.dist << " " << f.weight;
+        return stream;
     }
 
     std::istream& operator>> (std::istream& stream, CollisionModel::Feature& f) {
-//        double x, y, z, qx, qy, qz, qw;
-//        stream >> x >> y >> z >> qx >> qy >> qz >> qw >> f.pc1 >> f.pc2 >> f.dist >> f.weight;
         stream >> f.T_C_F >> f.pc1 >> f.pc2 >> f.dist >> f.weight;
-//        f.T_C_F = KDL::Frame( KDL::Rotation::Quaternion(qx, qy, qz, qw), KDL::Vector(x, y, z) );
+        return stream;
     }
 
-    void CollisionModel::saveToFile(const std::string &filename) const {
-/*        ofstream f;
-        f.open(filename);
-        f << p_dist_max_ << " " << r_dist_max_ << " " << sigma_p_ << " " << sigma_q_ << " " << sigma_r_ << " " << Cp_ << "\n";
+    boost::shared_ptr<CollisionModel > CollisionModel::readFromXml(const std::string &filename) {
+        TiXmlDocument doc( filename );
+        doc.LoadFile();
+        std::unique_ptr<CollisionModel > u_cm(new CollisionModel);
 
-        f << link_features_map_.size() << "\n";
-        for (std::map<std::string, std::vector<Feature > >::const_iterator it1 = link_features_map_.begin(); it1 != link_features_map_.end(); it1++) {
-            f << it1->first << " " << it1->second.size() << "\n";
-            for (std::vector<Feature >::const_iterator it2 = it1->second.begin(); it2 != it->second.end(); it2++) {
-                f << 
+	    if (doc.Error())
+	    {
+		    std::cout << "ERROR: CollisionModel::readFromXml: " << doc.ErrorDesc() << std::endl;
+		    doc.ClearError();
+		    return boost::shared_ptr<CollisionModel >(NULL);
+	    }
 
+    	TiXmlElement *elementCM = doc.FirstChildElement("CollisionModel");
+	    if (!elementCM)
+	    {
+		    std::cout << "ERROR: CollisionModel::readFromXml: " << "Could not find the 'CollisionModel' element in the xml file" << std::endl;
+		    return boost::shared_ptr<CollisionModel >(NULL);
+	    }
 
+    	// Get model parameters
+    	const char *str = elementCM->Attribute("sigma_p");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: CollisionModel::readFromXml: sigma_p" << std::endl;
+    		return boost::shared_ptr<CollisionModel >(NULL);
+    	}
+        u_cm->sigma_p_ = string2double(str);
+
+    	str = elementCM->Attribute("sigma_q");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: CollisionModel::readFromXml: sigma_q" << std::endl;
+    		return boost::shared_ptr<CollisionModel >(NULL);
+    	}
+        u_cm->sigma_q_ = string2double(str);
+
+    	str = elementCM->Attribute("sigma_r");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: CollisionModel::readFromXml: sigma_r" << std::endl;
+    		return boost::shared_ptr<CollisionModel >(NULL);
+    	}
+        u_cm->sigma_r_ = string2double(str);
+
+	    for (TiXmlElement* elementLCM = elementCM->FirstChildElement("LinkCollisionModel"); elementLCM; elementLCM = elementLCM->NextSiblingElement("LinkCollisionModel")) {
+        	str = elementLCM->Attribute("name");
+            if (!str) {
+		        std::cout << "ERROR: CollisionModel::readFromXml: LinkCollisionModel name" << std::endl;
+        		return boost::shared_ptr<CollisionModel >(NULL);
             }
+            std::string link_name( str );
+
+        	str = elementLCM->Attribute("TLC");
+            if (!str) {
+		        std::cout << "ERROR: CollisionModel::readFromXml: LinkCollisionModel TLC" << std::endl;
+        		return boost::shared_ptr<CollisionModel >(NULL);
+            }
+            u_cm->link_models_map_[link_name].T_L_C_ = string2frameKdl(str);
+
+            int features_count = 0;
+    	    for (TiXmlElement* elementF = elementLCM->FirstChildElement("Feature"); elementF; elementF = elementF->NextSiblingElement("Feature"), features_count++) {
+            }
+            u_cm->link_models_map_[link_name].features_.resize(features_count);
+
+            features_count = 0;
+    	    for (TiXmlElement* elementF = elementLCM->FirstChildElement("Feature"); elementF; elementF = elementF->NextSiblingElement("Feature"), features_count++) {
+            	str = elementF->Attribute("TCF");
+                if (!str) {
+		            std::cout << "ERROR: CollisionModel::readFromXml: Feature TCF" << std::endl;
+            		return boost::shared_ptr<CollisionModel >(NULL);
+                }
+                u_cm->link_models_map_[link_name].features_[features_count].T_C_F = string2frameKdl(str);
+
+            	str = elementF->Attribute("pc1");
+                if (!str) {
+		            std::cout << "ERROR: CollisionModel::readFromXml: Feature pc1" << std::endl;
+            		return boost::shared_ptr<CollisionModel >(NULL);
+                }
+                u_cm->link_models_map_[link_name].features_[features_count].pc1 = string2double(str);
+
+            	str = elementF->Attribute("pc2");
+                if (!str) {
+		            std::cout << "ERROR: CollisionModel::readFromXml: Feature pc2" << std::endl;
+            		return boost::shared_ptr<CollisionModel >(NULL);
+                }
+                u_cm->link_models_map_[link_name].features_[features_count].pc2 = string2double(str);
+
+            	str = elementF->Attribute("dist");
+                if (!str) {
+		            std::cout << "ERROR: CollisionModel::readFromXml: Feature dist" << std::endl;
+            		return boost::shared_ptr<CollisionModel >(NULL);
+                }
+                u_cm->link_models_map_[link_name].features_[features_count].dist = string2double(str);
+
+            	str = elementF->Attribute("weight");
+                if (!str) {
+		            std::cout << "ERROR: CollisionModel::readFromXml: Feature weight" << std::endl;
+            		return boost::shared_ptr<CollisionModel >(NULL);
+                }
+                u_cm->link_models_map_[link_name].features_[features_count].weight = string2double(str);
+            }
+	    }
+        return boost::shared_ptr<CollisionModel >(new CollisionModel(*u_cm.get()));
+    }
+
+    void CollisionModel::writeToXml(const std::string &filename) const {
+        TiXmlDocument doc;
+	    TiXmlDeclaration * decl = new TiXmlDeclaration( "1.0", "", "" );
+	    doc.LinkEndChild( decl );
+	    TiXmlElement * elementCM = new TiXmlElement( "CollisionModel" );
+        elementCM->SetAttribute("sigma_p", double2string(sigma_p_));
+        elementCM->SetAttribute("sigma_q", double2string(sigma_q_));
+        elementCM->SetAttribute("sigma_r", double2string(sigma_r_));
+        for (std::map<std::string, CollisionModel::LinkCollisionModel >::const_iterator it1 = link_models_map_.begin(); it1 != link_models_map_.end(); it1++) {
+    	    TiXmlElement * elementLCM = new TiXmlElement( "LinkCollisionModel" );
+            elementLCM->SetAttribute("name", it1->first);
+            elementLCM->SetAttribute("TLC", frameKdl2string(it1->second.T_L_C_));
+            for (std::vector<CollisionModel::Feature >::const_iterator it2 = it1->second.features_.begin(); it2 != it1->second.features_.end(); it2++) {
+        	    TiXmlElement * elementF = new TiXmlElement( "Feature" );
+                elementF->SetAttribute("TCF", frameKdl2string(it2->T_C_F));
+                elementF->SetAttribute("pc1", double2string(it2->pc1));
+                elementF->SetAttribute("pc2", double2string(it2->pc2));
+                elementF->SetAttribute("dist", double2string(it2->dist));
+                elementF->SetAttribute("weight", double2string(it2->weight));
+        	    elementLCM->LinkEndChild( elementF );
+            }
+    	    elementCM->LinkEndChild( elementLCM );
         }
-    std::map<std::string, std::vector<Feature > > link_features_map_;
-    std::map<std::string, KDL::Frame > T_L_C_map_;
-    std::vector<Feature > empty_f_vec_;
-    std::vector<std::string > col_link_names_;*/
+	    doc.LinkEndChild( elementCM );
+	    doc.SaveFile( filename );
     }
 
 /****************************************************************************************************************************************/

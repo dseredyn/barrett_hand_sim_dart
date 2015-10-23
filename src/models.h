@@ -122,14 +122,23 @@ public:
     };
 
 protected:
-    double p_dist_max_, r_dist_max_;
-    double sigma_p_, sigma_q_, sigma_r_, Cp_;
-    std::map<std::string, std::vector<Feature > > link_features_map_;
-    std::map<std::string, KDL::Frame > T_L_C_map_;
+
+    class LinkCollisionModel {
+    public:
+        std::vector<Feature > features_;
+        KDL::Frame T_L_C_;
+    };
+
+    double sigma_p_, sigma_q_, sigma_r_;
+    double p_dist_max_, r_dist_max_, Cp_;
+    std::map<std::string, LinkCollisionModel > link_models_map_;
     std::vector<Feature > empty_f_vec_;
     std::vector<std::string > col_link_names_;
 
 public:
+
+    static boost::shared_ptr<CollisionModel > readFromXml(const std::string &filename);
+    void writeToXml(const std::string &filename) const;
 
     CollisionModel();
 
