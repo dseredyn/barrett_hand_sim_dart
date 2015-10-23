@@ -93,6 +93,7 @@ public:
         Eigen::Vector3d p_;
         Eigen::Vector4d q_;
         double weight_;
+        bool operator== (const QueryDensityElement &qd) const;
     };
 
     class LinkQueryDensity {
@@ -112,6 +113,8 @@ public:
 
     static boost::shared_ptr<QueryDensity > readFromXml(const std::string &filename);
     void writeToXml(const std::string &filename) const;
+
+    bool operator== (const QueryDensity &qd) const;
 };
 
 class CollisionModel {

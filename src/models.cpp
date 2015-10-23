@@ -754,6 +754,37 @@ static const double PI(3.141592653589793);
 
     }
 
+    bool QueryDensity::QueryDensityElement::operator== (const QueryDensity::QueryDensityElement &qd) const {
+        return (p_ - qd.p_).norm() < 0.00001 && (q_ - qd.q_).norm() < 0.00001 && std::fabs(weight_ - qd.weight_) < 0.00001;
+    }
+
+    bool QueryDensity::operator== (const QueryDensity &qd) const {
+        if (sigma_p_ != qd.sigma_p_ || sigma_q_ != qd.sigma_q_ || p_dist_max_ != qd.p_dist_max_ || Cp_ != qd.Cp_) {
+            return false;
+        }
+
+        if (qd_map_.size() != qd.qd_map_.size()) {
+            return false;
+        }
+
+        for (std::map<std::string, QueryDensity::LinkQueryDensity >::const_iterator it1 = qd_map_.begin(); it1 != qd_map_.end(); it1++) {
+            std::map<std::string, QueryDensity::LinkQueryDensity >::const_iterator it2 = qd.qd_map_.find(it1->first);
+            if (it2 == qd.qd_map_.end()) {
+                return false;
+            }
+            if (it1->second.vec_.size() != it2->second.vec_.size()) {
+                return false;
+            }
+            for (int idx = 0; idx < it1->second.vec_.size(); idx++) {
+                if (!(it1->second.vec_[idx] == it2->second.vec_[idx])) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
 /******************************************************************************************************************************/
 
     ObjectModel::ObjectModel()

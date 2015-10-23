@@ -475,13 +475,21 @@ int main(int argc, char** argv) {
             qd->addQueryDensity(cm->getLinkNamesCol()[thread_id], qd_vec[thread_id]);
         }
     }
-*/
-//    qd->writeToXml("qd.xml");
-//    boost::shared_ptr<QueryDensity > pqd = QueryDensity::readFromXml("qd.xml");
+    qd->writeToXml("qd.xml");
+//*/
+
+/*
+    boost::shared_ptr<QueryDensity > pqd = QueryDensity::readFromXml("qd.xml");
+    if (*pqd.get() == *qd.get()) {
+        std::cout << "the same" << std::endl;
+    }
+    else {
+        std::cout << "different" << std::endl;
+    }
 //    pqd->writeToXml("qd2.xml");
 
-//    return 0;
-
+    return 0;
+*/
 //    m_id = visualiseQueryDensityParticles(markers_pub, m_id, qd->qd_map_["right_HandFingerTwoKnuckleThreeLink"].vec_, ob_name);
 //    {
 //        KDL::Frame T_L_C;
