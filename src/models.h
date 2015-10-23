@@ -176,14 +176,15 @@ protected:
     Eigen::VectorXd qb_, qg_;
     std::vector<std::string > joint_names_;
     std::map<std::string, double> q_ret_;
-    std::vector<double > samples_;
+    std::vector<Eigen::VectorXd > samples_;
     std::random_device rd_;
     std::mt19937 gen_;
     double sigma_c_;
 public:
     HandConfigurationModel();
     void generateModel(const std::map<std::string, double> &q_map_before, const std::map<std::string, double> &q_map_grasp, double beta, int n_samples, double sigma_c);
-    const std::map<std::string, double>& sample();
+    void sample(std::map<std::string, double> &q_ret_);
+    double getDensity(const std::map<std::string, double>& q_map) const;
 };
 
 #endif  // MODELS_H__

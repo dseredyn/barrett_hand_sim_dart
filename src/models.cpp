@@ -1033,37 +1033,77 @@ void HandConfigurationModel::generateModel(const std::map<std::string, double> &
         qg_(idx) = it_g->second;
     }
 
-    samples_.resize(n_samples);
+    samples_.resize(n_samples, Eigen::VectorXd(q_map_before.size()));
     for (int i = 0; i < n_samples; i++) {
         double f = static_cast<double >(i) / static_cast<double >(n_samples-1);
-        samples_[i] = (-beta) * (1.0 - f) + beta * f;
+        double gamma = (-beta) * (1.0 - f) + beta * f;
+        samples_[i] = (1.0 - gamma) * qg_ + gamma * qb_;
     }
 
     sigma_c_ = sigma_c;
 }
 
-const std::map<std::string, double>& HandConfigurationModel::sample() {
+void HandConfigurationModel::sample(std::map<std::string, double> &q_ret_) {
     const int n_samples = samples_.size();
     std::vector<double > weights(n_samples, 1.0 / static_cast<double >(n_samples));
 
-    double sum = 1.0;
+    Eigen::VectorXd result(qg_.size());
+    for (int qidx = 0; qidx < qg_.size(); qidx++) {
+        double sum = 0.0;
+        for (int pidx = 0; pidx < n_samples; pidx++) {
+            sum += weights[pidx];
+        }
 
-    double rr = randomUniform(0.0, sum);
-    double result_gamma;
-    for (int pidx = 0; pidx < n_samples; pidx++) {
-        rr -= weights[pidx];
-        if (rr <= 0.0) {
-            result_gamma = samples_[pidx];
-            break;
+        double rr = randomUniform(0.0, sum);
+        double result_i;
+        for (int pidx = 0; pidx < n_samples; pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                result_i = samples_[pidx][qidx];
+                break;
+            }
+        }
+
+        std::normal_distribution<> d(result_i, sigma_c_);
+        result_i = d(gen_);
+
+        result(qidx) = result_i;
+
+        for (int pidx = 0; pidx < n_samples; pidx++) {
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(result_i, samples_[pidx][qidx], sigma_c_);
         }
     }
 
-    std::normal_distribution<> d(result_gamma, sigma_c_);
-    result_gamma = d(gen_);
 
     for (int qidx = 0; qidx < joint_names_.size(); qidx++) {
-        q_ret_[joint_names_[qidx]] = (1.0 - result_gamma) * qg_(qidx) + result_gamma * qb_(qidx);
+        q_ret_[joint_names_[qidx]] = result(qidx);
     }
-    return q_ret_;
+}
+
+double HandConfigurationModel::getDensity(const std::map<std::string, double>& q_map) const {
+    const int n_samples = samples_.size();
+    std::vector<double > weights(n_samples, 1.0);
+
+    Eigen::VectorXd q(qg_.size());
+    for (int qidx = 0; qidx < joint_names_.size(); qidx++) {
+        std::map<std::string, double>::const_iterator it = q_map.find(joint_names_[qidx]);
+        if (it == q_map.end()) {
+            return 0.0;
+        }
+        q(qidx) = it->second;
+    }
+
+    for (int qidx = 0; qidx < qg_.size(); qidx++) {
+        for (int pidx = 0; pidx < n_samples; pidx++) {
+            weights[pidx] *= uniVariateIsotropicGaussianKernel(q(qidx), samples_[pidx][qidx], sigma_c_);
+        }
+    }
+
+    double sum = 0.0;
+    for (int pidx = 0; pidx < n_samples; pidx++) {
+        sum += weights[pidx];
+    }
+
+    return sum;
 }
 

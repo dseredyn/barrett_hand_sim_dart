@@ -510,7 +510,8 @@ int main(int argc, char** argv) {
         KDL::Frame T_L1_C;
         cm->getT_L_C(link_name, T_L1_C);
         T_O_L1 = T_O_C1 * T_L1_C.Inverse();
-        const std::map<std::string, double>& q_sample = hm.sample();
+        std::map<std::string, double> q_sample;
+        hm.sample(q_sample);
 
         double cost = qd->getQueryDensity(link_name, T_O_L1 * T_L1_C);
         for (std::vector<std::string >::const_iterator lit = cm->getLinkNamesCol().begin(); lit != cm->getLinkNamesCol().end(); lit++) {
@@ -609,17 +610,14 @@ int main(int argc, char** argv) {
         randomUnitSphere(axis);
         std::normal_distribution<> d = std::normal_distribution<>(0, 0.5/180.0*PI);
         KDL::Rotation rot( T_W_E_best.M * KDL::Rotation::Rot(KDL::Vector(axis(0), axis(1), axis(2)), d(gen)) );
-//        double sigma_q2 = 100.0;
-//        double Cp = misesFisherKernelConstant(sigma_q2, 4);
-//        double pdf_mean = misesFisherKernel(qq, qq, sigma_q2, Cp);
-//        vonMisesFisherSample(qq, pdf_mean, sigma_q2, Cp, qq_res);
         d = std::normal_distribution<>(0, 0.002);
-//        KDL::Frame T_W_E_new( KDL::Rotation::Quaternion(qq_res(0), qq_res(1), qq_res(2), qq_res(3)), T_W_E_best.p + KDL::Vector(d(gen), d(gen), d(gen)));
-        KDL::Frame T_W_E_new( rot, T_W_E_best.p + KDL::Vector(d(gen), d(gen), d(gen)));
+        KDL::Frame T_E_G(KDL::Vector(0,0,0.15));
+        KDL::Frame T_W_G_best = T_W_E_best * T_E_G;
+        KDL::Frame T_W_G_new( rot, T_W_G_best.p + KDL::Vector(d(gen), d(gen), d(gen)));
+        KDL::Frame T_W_E_new = T_W_G_new * T_E_G.Inverse();
 
         d = std::normal_distribution<>(0, 2.0/180.0*PI);
         std::map<std::string, double> q_new( q_best );
-//        const std::map<std::string, double>& q_new = hm.sample();
         double angleDiffF1 = d(gen);
         double angleDiffF2 = d(gen);
         double angleDiffF3 = d(gen);
@@ -635,7 +633,7 @@ int main(int argc, char** argv) {
             it->second = std::min( j->getPositionUpperLimit( 0 ), it->second );
         }
 
-        double cost = 1.0;
+        double cost = hm.getDensity(q_new);
         for (std::vector<std::string >::const_iterator lit = cm->getLinkNamesCol().begin(); lit != cm->getLinkNamesCol().end(); lit++) {
             if (cost < 0.0000001) {
                 cost = 0.0;
