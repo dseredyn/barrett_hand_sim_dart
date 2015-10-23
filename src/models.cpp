@@ -340,13 +340,14 @@ static const double PI(3.141592653589793);
 	    }
 
     	// Get model parameters
+        double sigma_p, sigma_q, sigma_r;
     	const char *str = elementCM->Attribute("sigma_p");
     	if (!str)
     	{
 		    std::cout << "ERROR: CollisionModel::readFromXml: sigma_p" << std::endl;
     		return boost::shared_ptr<CollisionModel >(NULL);
     	}
-        u_cm->sigma_p_ = string2double(str);
+        sigma_p = string2double(str);
 
     	str = elementCM->Attribute("sigma_q");
     	if (!str)
@@ -354,7 +355,7 @@ static const double PI(3.141592653589793);
 		    std::cout << "ERROR: CollisionModel::readFromXml: sigma_q" << std::endl;
     		return boost::shared_ptr<CollisionModel >(NULL);
     	}
-        u_cm->sigma_q_ = string2double(str);
+        sigma_q = string2double(str);
 
     	str = elementCM->Attribute("sigma_r");
     	if (!str)
@@ -362,7 +363,9 @@ static const double PI(3.141592653589793);
 		    std::cout << "ERROR: CollisionModel::readFromXml: sigma_r" << std::endl;
     		return boost::shared_ptr<CollisionModel >(NULL);
     	}
-        u_cm->sigma_r_ = string2double(str);
+        sigma_r = string2double(str);
+
+        u_cm->setSamplerParameters(sigma_p, sigma_q, sigma_r);
 
 	    for (TiXmlElement* elementLCM = elementCM->FirstChildElement("LinkCollisionModel"); elementLCM; elementLCM = elementLCM->NextSiblingElement("LinkCollisionModel")) {
         	str = elementLCM->Attribute("name");
@@ -422,6 +425,13 @@ static const double PI(3.141592653589793);
                 u_cm->link_models_map_[link_name].features_[features_count].weight = string2double(str);
             }
 	    }
+
+        u_cm->col_link_names_.resize(u_cm->link_models_map_.size());
+        int idx = 0;
+        for (std::map<std::string, CollisionModel::LinkCollisionModel >::const_iterator it = u_cm->link_models_map_.begin(); it != u_cm->link_models_map_.end(); it++, idx++) {
+            u_cm->col_link_names_[idx] = it->first;
+        }
+
         return boost::shared_ptr<CollisionModel >(new CollisionModel(*u_cm.get()));
     }
 
@@ -472,15 +482,15 @@ static const double PI(3.141592653589793);
     }
 
     void QueryDensity::addQueryDensity(const std::string &link_name, const std::vector<QueryDensityElement > &qd_vec) {
-        qd_map_[link_name] = qd_vec;
+        qd_map_[link_name].vec_ = qd_vec;
     }
 
     bool QueryDensity::sampleQueryDensity(int seed, const std::string &link_name, Eigen::Vector3d &p, Eigen::Vector4d &q) const {
-        std::map<std::string, std::vector<QueryDensityElement > >::const_iterator it = qd_map_.find( link_name );
+        std::map<std::string, LinkQueryDensity >::const_iterator it = qd_map_.find( link_name );
         if (it == qd_map_.end()) {
             return false;
         }
-        const std::vector<QueryDensityElement > &qd = it->second;
+        const std::vector<QueryDensityElement > &qd = it->second.vec_;
         std::mt19937 gen_(seed);
 
         const int n_points = qd.size();
@@ -601,11 +611,11 @@ static const double PI(3.141592653589793);
     }
 
     double QueryDensity::getQueryDensity(const std::string &link_name, const Eigen::Vector3d &p, const Eigen::Vector4d &q) const {
-        std::map<std::string, std::vector<QueryDensityElement > >::const_iterator it = qd_map_.find( link_name );
+        std::map<std::string, LinkQueryDensity >::const_iterator it = qd_map_.find( link_name );
         if (it == qd_map_.end()) {
             return 0.0;
         }
-        const std::vector<QueryDensityElement > &qd = it->second;
+        const std::vector<QueryDensityElement > &qd = it->second.vec_;
 
         const int n_points = qd.size();
 
@@ -625,9 +635,6 @@ static const double PI(3.141592653589793);
                     sum += Q;
                 }
             }
-//            sum += qd[pidx].weight_ *
-//                triVariateIsotropicGaussianKernel(p, qd[pidx].p_, sigma_p_) *
-//                misesFisherKernel(q, qd[pidx].q_, sigma_q_, Cp_);
         }
 
         return sum;
@@ -637,6 +644,114 @@ static const double PI(3.141592653589793);
         double qx, qy, qz, qw;
         T_O_L.M.GetQuaternion(qx, qy, qz, qw);
         return getQueryDensity(link_name, Eigen::Vector3d(T_O_L.p.x(), T_O_L.p.y(), T_O_L.p.z()), Eigen::Vector4d(qx, qy, qz, qw));
+    }
+
+    boost::shared_ptr<QueryDensity > QueryDensity::readFromXml(const std::string &filename) {
+        TiXmlDocument doc( filename );
+        doc.LoadFile();
+        std::unique_ptr<QueryDensity > u_qd(new QueryDensity);
+
+	    if (doc.Error())
+	    {
+		    std::cout << "ERROR: QueryDensity::readFromXml: " << doc.ErrorDesc() << std::endl;
+		    doc.ClearError();
+		    return boost::shared_ptr<QueryDensity >(NULL);
+	    }
+
+    	TiXmlElement *elementQD = doc.FirstChildElement("QueryDensity");
+	    if (!elementQD)
+	    {
+		    std::cout << "ERROR: QueryDensity::readFromXml: " << "Could not find the 'QueryDensity' element in the xml file" << std::endl;
+		    return boost::shared_ptr<QueryDensity >(NULL);
+	    }
+
+    	// Get model parameters
+        double sigma_p, sigma_q, sigma_r;
+    	const char *str = elementQD->Attribute("sigma_p");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: QueryDensity::readFromXml: sigma_p" << std::endl;
+    		return boost::shared_ptr<QueryDensity >(NULL);
+    	}
+        sigma_p = string2double(str);
+
+    	str = elementQD->Attribute("sigma_q");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: QueryDensity::readFromXml: sigma_q" << std::endl;
+    		return boost::shared_ptr<QueryDensity >(NULL);
+    	}
+        sigma_q = string2double(str);
+
+        u_qd->setSamplerParameters(sigma_p, sigma_q);
+
+	    for (TiXmlElement* elementLQD = elementQD->FirstChildElement("LinkQueryDensity"); elementLQD; elementLQD = elementLQD->NextSiblingElement("LinkQueryDensity")) {
+        	str = elementLQD->Attribute("name");
+            if (!str) {
+		        std::cout << "ERROR: CollisionModel::readFromXml: LinkQueryDensity name" << std::endl;
+        		return boost::shared_ptr<QueryDensity >(NULL);
+            }
+            std::string link_name( str );
+
+            int features_count = 0;
+    	    for (TiXmlElement* elementQDE = elementLQD->FirstChildElement("QueryDensityElement"); elementQDE; elementQDE = elementQDE->NextSiblingElement("QueryDensityElement"), features_count++) {
+            }
+            u_qd->qd_map_[link_name].vec_.resize(features_count);
+
+            features_count = 0;
+    	    for (TiXmlElement* elementQDE = elementLQD->FirstChildElement("QueryDensityElement"); elementQDE; elementQDE = elementQDE->NextSiblingElement("QueryDensityElement"), features_count++) {
+            	str = elementQDE->Attribute("p");
+                if (!str) {
+		            std::cout << "ERROR: CollisionModel::readFromXml: QueryDensityElement p" << std::endl;
+            		return boost::shared_ptr<QueryDensity >(NULL);
+                }
+                std::istringstream strs_p(str);
+                strs_p >> u_qd->qd_map_[link_name].vec_[features_count].p_(0) >> u_qd->qd_map_[link_name].vec_[features_count].p_(1) >>
+                    u_qd->qd_map_[link_name].vec_[features_count].p_(2);
+
+            	str = elementQDE->Attribute("q");
+                if (!str) {
+		            std::cout << "ERROR: CollisionModel::readFromXml: QueryDensityElement q" << std::endl;
+            		return boost::shared_ptr<QueryDensity >(NULL);
+                }
+                std::istringstream strs_q(str);
+                strs_q >> u_qd->qd_map_[link_name].vec_[features_count].q_(0) >> u_qd->qd_map_[link_name].vec_[features_count].q_(1) >>
+                    u_qd->qd_map_[link_name].vec_[features_count].q_(2) >> u_qd->qd_map_[link_name].vec_[features_count].q_(3);
+
+            	str = elementQDE->Attribute("weight");
+                if (!str) {
+		            std::cout << "ERROR: CollisionModel::readFromXml: QueryDensityElement weight" << std::endl;
+            		return boost::shared_ptr<QueryDensity >(NULL);
+                }
+                u_qd->qd_map_[link_name].vec_[features_count].weight_ = string2double(str);
+            }
+	    }
+
+        return boost::shared_ptr<QueryDensity >(new QueryDensity(*u_qd.get()));
+    }
+
+    void QueryDensity::writeToXml(const std::string &filename) const {
+        TiXmlDocument doc;
+	    TiXmlDeclaration * decl = new TiXmlDeclaration( "1.0", "", "" );
+	    doc.LinkEndChild( decl );
+	    TiXmlElement * elementQD = new TiXmlElement( "QueryDensity" );
+        elementQD->SetAttribute("sigma_p", double2string(sigma_p_));
+        elementQD->SetAttribute("sigma_q", double2string(sigma_q_));
+        for (std::map<std::string, QueryDensity::LinkQueryDensity >::const_iterator it1 = qd_map_.begin(); it1 != qd_map_.end(); it1++) {
+    	    TiXmlElement * elementLQD = new TiXmlElement( "LinkQueryDensity" );
+            elementLQD->SetAttribute("name", it1->first);
+            for (std::vector<QueryDensity::QueryDensityElement >::const_iterator it2 = it1->second.vec_.begin(); it2 != it1->second.vec_.end(); it2++) {
+        	    TiXmlElement * elementQDE = new TiXmlElement( "QueryDensityElement" );
+                elementQDE->SetAttribute("p", double2string(it2->p_(0)) + " " + double2string(it2->p_(1)) + " " + double2string(it2->p_(2)));
+                elementQDE->SetAttribute("q", double2string(it2->q_(0)) + " " + double2string(it2->q_(1)) + " " + double2string(it2->q_(2)) + " " + double2string(it2->q_(3)));
+                elementQDE->SetAttribute("weight", double2string(it2->weight_));
+        	    elementLQD->LinkEndChild( elementQDE );
+            }
+    	    elementQD->LinkEndChild( elementLQD );
+        }
+	    doc.LinkEndChild( elementQD );
+	    doc.SaveFile( filename );
+
     }
 
 /******************************************************************************************************************************/

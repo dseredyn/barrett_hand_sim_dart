@@ -84,8 +84,8 @@ public:
 
 class QueryDensity {
 protected:
-    double p_dist_max_;
-    double sigma_p_, sigma_q_, Cp_;
+    double sigma_p_, sigma_q_;
+    double p_dist_max_, Cp_;
 
 public:
     class QueryDensityElement {
@@ -95,7 +95,12 @@ public:
         double weight_;
     };
 
-    std::map<std::string, std::vector<QueryDensityElement > > qd_map_;
+    class LinkQueryDensity {
+    public:
+        std::vector<QueryDensityElement > vec_;
+    };
+
+    std::map<std::string, LinkQueryDensity > qd_map_;
 
     void setSamplerParameters(double sigma_p, double sigma_q);
 
@@ -104,6 +109,9 @@ public:
     bool sampleQueryDensity(int seed, const std::string &link_name, KDL::Frame &T_O_L) const;
     double getQueryDensity(const std::string &link_name, const Eigen::Vector3d &p, const Eigen::Vector4d &q) const;
     double getQueryDensity(const std::string &link_name, const KDL::Frame &T_O_L) const;
+
+    static boost::shared_ptr<QueryDensity > readFromXml(const std::string &filename);
+    void writeToXml(const std::string &filename) const;
 };
 
 class CollisionModel {
