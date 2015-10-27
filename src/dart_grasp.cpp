@@ -44,8 +44,22 @@
 #include <kdl/frames.hpp>
 
 #include "planer_utils/marker_publisher.h"
+#include "planer_utils/random_uniform.h"
+#include "planer_utils/utilities.h"
 
 #include <dart/dart.h>
+
+#include <pcl/common/transforms.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/voxel_grid_covariance.h>
+#include <pcl/point_types.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/common/pca.h>
+#include <pcl/features/principal_curvatures.h>
+
+//#include "grasp_state.h"
+#include "models.h"
+#include "mesh_sampling.h"
 
 void EigenTfToKDL(const Eigen::Isometry3d &tf, KDL::Frame &kdlT) {
     kdlT = KDL::Frame( KDL::Rotation(tf(0,0),tf(0,1),tf(0,2), tf(1,0), tf(1,1), tf(1,2), tf(2,0), tf(2,1), tf(2,2)), KDL::Vector(tf(0,3), tf(1,3), tf(2,3)) );
@@ -358,15 +372,17 @@ public:
 int main(int argc, char** argv) {
     const double PI(3.141592653589793);
 
+    if (argc != 4) {
+        std::cout << "usage:" << std::endl;
+        std::cout << "package_scene path_scene output" << std::endl;
+        return 0;
+    }
     ros::init(argc, argv, "dart_test");
 
     ros::NodeHandle nh_;
-        std::string robot_description_str;
-        std::string robot_semantic_description_str;
-        nh_.getParam("/robot_description", robot_description_str);
-        nh_.getParam("/robot_semantic_description", robot_semantic_description_str);
 
-    std::string object_urdf( "/objects/cube.urdf" );
+    std::string package_name( argv[1] );//"barrett_hand_sim_dart" );
+    std::string scene_urdf( argv[2] );//"/scenes/pinch.urdf" );
 
     ros::Rate loop_rate(400);
 
@@ -375,51 +391,32 @@ int main(int argc, char** argv) {
     tf::TransformBroadcaster br;
     MarkerPublisher markers_pub(nh_);
 
-
     std::string package_path_barrett = ros::package::getPath("barrett_hand_defs");
-    std::string package_path_sim = ros::package::getPath("barrett_hand_sim_dart");
+    std::string package_path = ros::package::getPath(package_name);
 
     // Load the Skeleton from a file
     dart::utils::DartLoader loader;
     loader.addPackageDirectory("barrett_hand_defs", package_path_barrett);
-    loader.addPackageDirectory("barrett_hand_sim_dart", package_path_sim);
-    dart::dynamics::SkeletonPtr bh( loader.parseSkeleton(package_path_barrett + "/robots/barrett_hand.urdf") );
-    bh->setName("BarrettHand");
+    loader.addPackageDirectory("barrett_hand_sim_dart", package_path);
 
-    // Position its base in a reasonable way
+    dart::dynamics::SkeletonPtr scene( loader.parseSkeleton(package_path + scene_urdf) );
+    scene->enableSelfCollision(true);
+
+    dart::dynamics::SkeletonPtr bh( loader.parseSkeleton(package_path_barrett + "/robots/barrett_hand.urdf") );
     Eigen::Isometry3d tf;
-    KDLToEigenTf(KDL::Frame( KDL::Rotation::RotX(180.0/180.0*PI), KDL::Vector(0.0, 0.0, 0.22) ), tf);
+    tf = scene->getBodyNode("gripper_mount_link")->getRelativeTransform();
     bh->getJoint(0)->setTransformFromParentBodyNode(tf);
 
-    dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(package_path_sim + object_urdf) );
-    KDLToEigenTf(KDL::Frame( KDL::Vector(0.0, 0.0, 0.07) ), tf);
-    domino->getJoint(0)->setTransformFromParentBodyNode(tf);
-
-    dart::dynamics::SkeletonPtr plane( loader.parseSkeleton(package_path_sim + "/objects/plane.urdf") );
 
     dart::simulation::World* world = new dart::simulation::World();
 
-//    std::cout << "world time step: " << world->getTimeStep() << std::endl;
+    world->addSkeleton(scene);
     world->addSkeleton(bh);
-    world->addSkeleton(domino);
-    world->addSkeleton(plane);
 
     Eigen::Vector3d grav(0,0,-1);
     world->setGravity(grav);
-//    std::cout << "world->getNumSimpleFrames: " << world->getNumSimpleFrames() << std::endl;
 
     GripperState gs;
-//    gs.addJoint(const std::string &joint_name, double Kc, double KcTi, double Td, double Ts, double u_max_, const std::string &mimic_joint=std::string(), double mimic_factor=0.0, double mimic_offset=0.0);
-/*    gs.addJoint("right_HandFingerOneKnuckleOneJoint", 100.0, 15.0, 0.0, 0.001, 5.0, true, false);
-    gs.addJoint("right_HandFingerOneKnuckleTwoJoint", 100.0, 15.0, 0.0, 0.001, 5.0, false, true);
-    gs.addJoint("right_HandFingerTwoKnuckleTwoJoint", 100.0, 15.0, 0.0, 0.001, 5.0, false, true);
-    gs.addJoint("right_HandFingerThreeKnuckleTwoJoint", 100.0, 15.0, 0.0, 0.001, 5.0, false, true);
-
-    gs.addJointMimic("right_HandFingerTwoKnuckleOneJoint", 200.0, 15.0, 0.0, 0.001, 5.0, true, "right_HandFingerOneKnuckleOneJoint", 1.0, 0.0);
-    gs.addJointMimic("right_HandFingerOneKnuckleThreeJoint", 200.0, 15.0, 0.0, 0.001, 5.0, false, "right_HandFingerOneKnuckleTwoJoint", 0.333333, 0.0);
-    gs.addJointMimic("right_HandFingerTwoKnuckleThreeJoint", 200.0, 15.0, 0.0, 0.001, 5.0, false, "right_HandFingerTwoKnuckleTwoJoint", 0.333333, 0.0);
-    gs.addJointMimic("right_HandFingerThreeKnuckleThreeJoint", 200.0, 15.0, 0.0, 0.001, 5.0, false, "right_HandFingerThreeKnuckleTwoJoint", 0.333333, 0.0);
-*/
 
     double Kc = 400.0;
     double KcDivTi = Kc / 1.0;
@@ -490,15 +487,9 @@ int main(int argc, char** argv) {
         }
 
         int m_id = 0;
-        for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
-            dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
-            if (sk->getName() == bh->getName()) {
-                continue;
-            }
-//            std::cout << "skeleton: " << sk->getName() << std::endl;
+        for (int bidx = 0; bidx < scene->getNumBodyNodes(); bidx++) {
+                dart::dynamics::BodyNode *b = scene->getBodyNode(bidx);
 
-            for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
-                dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
                 const Eigen::Isometry3d &tf = b->getTransform();
                 KDL::Frame T_W_L;
                 EigenTfToKDL(tf, T_W_L);
@@ -510,7 +501,6 @@ int main(int argc, char** argv) {
                         m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
                     }
                 }
-            }
         }
 
         markers_pub.publish();
@@ -519,9 +509,9 @@ int main(int argc, char** argv) {
         loop_rate.sleep();
 
         counter++;
-        if (counter < 2000) {
+        if (counter < 3000) {
         }
-        else if (counter == 2000) {
+        else if (counter == 3000) {
             dart::dynamics::Joint::Properties prop = bh->getJoint(0)->getJointProperties();
             dart::dynamics::FreeJoint::Properties prop_free;
             prop_free.mName = prop_free.mName;
@@ -531,7 +521,7 @@ int main(int argc, char** argv) {
             prop_free.mActuatorType = dart::dynamics::Joint::VELOCITY;
             bh->getRootBodyNode()->changeParentJointType<dart::dynamics::FreeJoint >(prop_free);
         }
-        else if (counter < 3000) {
+        else if (counter < 4000) {
             bh->getDof("Joint_pos_z")->setVelocity(-0.1);
         }
         else {
@@ -539,29 +529,177 @@ int main(int argc, char** argv) {
         }
     }
 
-    // write grasp state to the output
-    {
-        tf = bh->getBodyNode("right_HandPalmLink")->getTransform();
-        KDL::Frame T_W_E;
-        EigenTfToKDL(tf, T_W_E);
+    //
+    // generate models
+    //
 
-        dart::dynamics::BodyNode *b = domino->getRootBodyNode();
-        tf = b->getTransform();
-        KDL::Frame T_W_O;
-        EigenTfToKDL(tf, T_W_O);
+    const std::string ob_name( "graspable" );
 
-        KDL::Frame T_E_O = T_W_E.Inverse() * T_W_O;
-        double qx, qy, qz, qw;
-        T_E_O.M.GetQuaternion(qx, qy, qz, qw);
-        std::cout << T_E_O.p.x() << " " << T_E_O.p.y() << " " << T_E_O.p.z() << " " << qx << " " << qy << " " << qz << " " << qw << std::endl;
+    // calculate point clouds for all links and for the grasped object
+    std::map<std::string, pcl::PointCloud<pcl::PointNormal>::Ptr > point_clouds_map;
+    std::map<std::string, pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr > point_pc_clouds_map;
+    std::map<std::string, KDL::Frame > frames_map;
+    std::map<std::string, boost::shared_ptr<std::vector<KDL::Frame > > > features_map;
+    std::map<std::string, boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > > grids_map;
+    for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
+        dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
 
-        for (std::vector<std::string >::const_iterator it = gs.getJointNames().begin(); it != gs.getJointNames().end(); it++) {
-            dart::dynamics::Joint *j = bh->getJoint( *it );
-            std::cout << (*it) << " " << j->getPosition(0) << " ";
+        for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
+            dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
+            const Eigen::Isometry3d &tf = b->getTransform();
+            const std::string &body_name = b->getName();
+            if (body_name.find("right_Hand") != 0 && body_name != ob_name) {
+                continue;
+            }
+            KDL::Frame T_W_L;
+            EigenTfToKDL(tf, T_W_L);
+            std::cout << body_name << "   " << b->getNumCollisionShapes() << std::endl;
+            for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
+                dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
+                if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
+                    std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
+                    std::cout << "mesh path: " << msh->getMeshPath() << std::endl;
+                    const Eigen::Isometry3d &tf = sh->getLocalTransform();
+                    KDL::Frame T_L_S;
+                    EigenTfToKDL(tf, T_L_S);
+                    KDL::Frame T_S_L = T_L_S.Inverse();
+
+                    const aiScene *sc = msh->getMesh();
+                    if (sc->mNumMeshes != 1) {
+                        std::cout << "ERROR: sc->mNumMeshes = " << sc->mNumMeshes << std::endl;
+                    }
+                    int midx = 0;
+//                    std::cout << "v: " << sc->mMeshes[midx]->mNumVertices << "   f: " << sc->mMeshes[midx]->mNumFaces << std::endl;
+                    pcl::PointCloud<pcl::PointNormal>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointNormal>);
+                    uniform_sampling(sc->mMeshes[midx], 100000, *cloud_1);
+                    for (int pidx = 0; pidx < cloud_1->points.size(); pidx++) {
+                        KDL::Vector pt_L = T_L_S * KDL::Vector(cloud_1->points[pidx].x, cloud_1->points[pidx].y, cloud_1->points[pidx].z);
+                        cloud_1->points[pidx].x = pt_L.x();
+                        cloud_1->points[pidx].y = pt_L.y();
+                        cloud_1->points[pidx].z = pt_L.z();
+                    }
+                    // Voxelgrid
+                    boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > grid_(new pcl::VoxelGrid<pcl::PointNormal>);
+                    pcl::PointCloud<pcl::PointNormal>::Ptr res(new pcl::PointCloud<pcl::PointNormal>);
+                    grid_->setDownsampleAllData(true);
+                    grid_->setSaveLeafLayout(true);
+                    grid_->setInputCloud(cloud_1);
+                    grid_->setLeafSize(0.005, 0.005, 0.005);
+                    grid_->filter (*res);
+                    point_clouds_map[body_name] = res;
+                    frames_map[body_name] = T_W_L;
+                    grids_map[body_name] = grid_;
+
+                    std::cout << "res->points.size(): " << res->points.size() << std::endl;
+
+                    pcl::search::KdTree<pcl::PointNormal>::Ptr tree (new pcl::search::KdTree<pcl::PointNormal>);
+
+                    // Setup the principal curvatures computation
+                    pcl::PrincipalCurvaturesEstimation<pcl::PointNormal, pcl::PointNormal, pcl::PrincipalCurvatures> principalCurvaturesEstimation;
+
+                    // Provide the original point cloud (without normals)
+                    principalCurvaturesEstimation.setInputCloud (res);
+
+                    // Provide the point cloud with normals
+                    principalCurvaturesEstimation.setInputNormals(res);
+
+                    // Use the same KdTree from the normal estimation
+                    principalCurvaturesEstimation.setSearchMethod (tree);
+                    principalCurvaturesEstimation.setRadiusSearch(0.008);
+
+                    // Actually compute the principal curvatures
+                    pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures (new pcl::PointCloud<pcl::PrincipalCurvatures> ());
+                    principalCurvaturesEstimation.compute (*principalCurvatures);
+                    point_pc_clouds_map[body_name] = principalCurvatures;
+
+                    features_map[body_name].reset( new std::vector<KDL::Frame >(res->points.size()) );
+                    for (int pidx = 0; pidx < res->points.size(); pidx++) {
+                        KDL::Vector nx, ny, nz(res->points[pidx].normal[0], res->points[pidx].normal[1], res->points[pidx].normal[2]);
+                        if ( std::fabs( principalCurvatures->points[pidx].pc1 - principalCurvatures->points[pidx].pc2 ) > 0.001) {
+                            nx = KDL::Vector(principalCurvatures->points[pidx].principal_curvature[0], principalCurvatures->points[pidx].principal_curvature[1], principalCurvatures->points[pidx].principal_curvature[2]);
+                        }
+                        else {
+                            if (std::fabs(nz.z()) < 0.7) {
+                                nx = KDL::Vector(0, 0, 1);
+                            }
+                            else {
+                                nx = KDL::Vector(1, 0, 0);
+                            }
+                        }
+                        ny = nz * nx;
+                        nx = ny * nz;
+                        nx.Normalize();
+                        ny.Normalize();
+                        nz.Normalize();
+                        (*features_map[body_name])[pidx] = KDL::Frame( KDL::Rotation(nx, ny, nz), KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) );
+                    }
+                }
+            }
         }
-        std::cout << std::endl;
-        std::cout << object_urdf << std::endl;
     }
+
+    const double sigma_p = 0.005;
+    const double sigma_q = 100.0;
+    const double sigma_r = 0.1;//05;
+
+    int m_id = 101;
+
+    // generate object model
+    boost::shared_ptr<ObjectModel > om(new ObjectModel);
+    for (int pidx = 0; pidx < point_clouds_map[ob_name]->points.size(); pidx++) {
+        if (point_pc_clouds_map[ob_name]->points[pidx].pc1 > 1.1 * point_pc_clouds_map[ob_name]->points[pidx].pc2) {
+            // e.g. pc1=1, pc2=0
+            // edge
+            om->addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(PI)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
+            om->addPointFeature((*features_map[ob_name])[pidx], point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
+        }
+        else {
+            for (double angle = 0.0; angle < 359.0/180.0*PI; angle += 20.0/180.0*PI) {
+                om->addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(angle)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
+            }
+        }
+    }
+
+
+    std::cout << "om.getPointFeatures().size(): " << om->getPointFeatures().size() << std::endl;
+    KDL::Frame T_W_O = frames_map[ob_name];
+
+    // generate collision model
+    std::map<std::string, std::list<std::pair<int, double> > > link_pt_map;
+    boost::shared_ptr<CollisionModel > cm(new CollisionModel);
+    cm->setSamplerParameters(sigma_p, sigma_q, sigma_r);
+
+    std::list<std::string > gripper_link_names;
+    for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
+        const std::string &link_name = bh->getBodyNode(bidx)->getName();
+        gripper_link_names.push_back(link_name);
+    }
+
+    double dist_range = 0.01;
+    for (std::list<std::string >::const_iterator nit = gripper_link_names.begin(); nit != gripper_link_names.end(); nit++) {
+        const std::string &link_name = (*nit);
+        if (point_clouds_map.find( link_name ) == point_clouds_map.end()) {
+            continue;
+        }
+        cm->addLinkContacts(dist_range, link_name, point_clouds_map[link_name], frames_map[link_name],
+                            om->getPointFeatures(), T_W_O);
+    }
+
+    // generate hand configuration model
+    boost::shared_ptr<HandConfigurationModel > hm(new HandConfigurationModel);
+    std::map<std::string, double> joint_q_map_before( joint_q_map );
+
+    double angleDiffKnuckleTwo = 15.0/180.0*PI;
+    joint_q_map_before["right_HandFingerOneKnuckleTwoJoint"] -= angleDiffKnuckleTwo;
+    joint_q_map_before["right_HandFingerTwoKnuckleTwoJoint"] -= angleDiffKnuckleTwo;
+    joint_q_map_before["right_HandFingerThreeKnuckleTwoJoint"] -= angleDiffKnuckleTwo;
+    joint_q_map_before["right_HandFingerOneKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
+    joint_q_map_before["right_HandFingerTwoKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
+    joint_q_map_before["right_HandFingerThreeKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
+
+    hm->generateModel(joint_q_map_before, joint_q_map, 1.0, 30, 0.05);
+
+    writeToXml(argv[3], cm, hm);
 
     return 0;
 }

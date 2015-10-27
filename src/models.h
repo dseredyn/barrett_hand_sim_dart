@@ -52,10 +52,13 @@
 #include <pcl/common/pca.h>
 #include <pcl/features/principal_curvatures.h>
 
+#include <tinyxml.h>
+
 class ObjectModel {
 public:
     class Feature {
     public:
+        Feature();
         Feature(const KDL::Frame &T_O_F, double pc1, double pc2);
 
         KDL::Frame T_O_F_;
@@ -68,18 +71,22 @@ protected:
     double sigma_p_, sigma_q_, sigma_r_, Cp_;
 
 public:
+    std::string package_name_;
+    std::string path_urdf_;
 
     ObjectModel();
-
     void randomizeSurface();
-
     void setSamplerParameters(double sigma_p, double sigma_q, double sigma_r);
-
-    void sample(int seed, Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r) const;
-
+    int sample(int seed, Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r) const;
     void addPointFeature(const KDL::Frame &T_O_F, double pc1, double pc2);
-
     const std::vector<Feature >& getPointFeatures() const;
+
+    const std::vector<Feature >& getFeaturesData() const;
+    int getFeaturesCount() const;
+
+    static boost::shared_ptr<ObjectModel > readFromXml(const std::string &filename);
+    void writeToXml(const std::string &filename) const;
+    TiXmlElement* makeXmlNode() const;
 };
 
 class QueryDensity {
@@ -102,7 +109,6 @@ public:
     };
 
     std::map<std::string, LinkQueryDensity > qd_map_;
-
     void setSamplerParameters(double sigma_p, double sigma_q);
 
     void addQueryDensity(const std::string &link_name, const std::vector<QueryDensityElement > &qd_vec);
@@ -113,6 +119,7 @@ public:
 
     static boost::shared_ptr<QueryDensity > readFromXml(const std::string &filename);
     void writeToXml(const std::string &filename) const;
+    TiXmlElement* makeXmlNode() const;
 
     bool operator== (const QueryDensity &qd) const;
 };
@@ -150,6 +157,7 @@ public:
 
     static boost::shared_ptr<CollisionModel > readFromXml(const std::string &filename);
     void writeToXml(const std::string &filename) const;
+    TiXmlElement* makeXmlNode() const;
 
     CollisionModel();
 
@@ -184,17 +192,15 @@ public:
 
     static boost::shared_ptr<HandConfigurationModel > readFromXml(const std::string &filename);
     void writeToXml(const std::string &filename) const;
+    TiXmlElement* makeXmlNode() const;
 };
 
-class GraspState {
-public:
-    KDL::Frame T_E_O_;
-    std::map<std::string, double > q_map_;
-    std::string path_urdf_;
-
-    static boost::shared_ptr<GraspState > readFromXml(const std::string &filename);
-    void writeToXml(const std::string &filename) const;
-};
+void writeToXml(const std::string &filename, const boost::shared_ptr<CollisionModel > &cm, const boost::shared_ptr<HandConfigurationModel > &hcm);
+void writeToXml(const std::string &filename, const boost::shared_ptr<QueryDensity > &qd, const boost::shared_ptr<HandConfigurationModel > &hcm);
+void writeToXml(const std::string &filename, const boost::shared_ptr<QueryDensity > &qd, const boost::shared_ptr<CollisionModel > &cm,
+                const boost::shared_ptr<HandConfigurationModel > &hcm);
+void writeToXml(const std::string &filename, const boost::shared_ptr<QueryDensity > &qd, const boost::shared_ptr<CollisionModel > &cm,
+                const boost::shared_ptr<HandConfigurationModel > &hcm, const boost::shared_ptr<ObjectModel > &om);
 
 #endif  // MODELS_H__
 

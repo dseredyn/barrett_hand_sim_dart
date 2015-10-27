@@ -180,7 +180,7 @@ static const double PI(3.141592653589793);
         }
         return sum;
     }
-
+/*
     bool CollisionModel::sampleForR(int seed, const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q) const {
         std::map<std::string, LinkCollisionModel >::const_iterator it = link_models_map_.find( link_name );
         if (it == link_models_map_.end()) {
@@ -290,7 +290,78 @@ static const double PI(3.141592653589793);
         }
 
         double pdf_mean = misesFisherKernel(mean_q, mean_q, sigma_q_, Cp_);
-        int iterations = vonMisesFisherSample(mean_q, pdf_mean, sigma_q_, Cp_, result_q);
+
+        // TODO
+        result_q = mean_q;
+        int iterations = 1;
+//        int iterations = vonMisesFisherSample(mean_q, pdf_mean, sigma_q_, Cp_, result_q);
+        if (iterations < 0) {
+            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
+        }
+
+        p(0) = result_x;
+        p(1) = result_y;
+        p(2) = result_z;
+        q = result_q;
+
+        return true;
+    }
+*/
+
+    bool CollisionModel::sampleForR(int seed, const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q) const {
+        std::map<std::string, LinkCollisionModel >::const_iterator it = link_models_map_.find( link_name );
+        if (it == link_models_map_.end()) {
+            return false;
+        }
+        const std::vector<Feature > &features = it->second.features_;
+        std::mt19937 gen_(seed);
+
+        const int n_points = features.size();
+        std::vector<double > weights(n_points, 0.0);
+
+        double result_x, result_y, result_z;
+        Eigen::Vector4d result_q;
+
+        // sample the x coordinate
+        double sum = 0.0;
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            if (std::fabs(r(0) - features[pidx].pc1) > r_dist_max_ || std::fabs(r(1) - features[pidx].pc2) > r_dist_max_ || features[pidx].weight < 0.0000001) {
+                weights[pidx] = 0.0;
+            }
+            else {
+                weights[pidx] = features[pidx].weight * biVariateIsotropicGaussianKernel(r, Eigen::Vector2d(features[pidx].pc1, features[pidx].pc2), sigma_r_);
+            }
+            sum += weights[pidx];
+        }
+
+        Feature random_kernel;
+        double rr = randomUniform(0.0, sum);
+        for (int pidx = 0; pidx < n_points; pidx++) {
+            rr -= weights[pidx];
+            if (rr <= 0.0) {
+                random_kernel = features[pidx];
+                break;
+            }
+        }
+
+        Eigen::Vector4d mean_q;
+        result_x = random_kernel.T_C_F.p.x();
+        result_y = random_kernel.T_C_F.p.y();
+        result_z = random_kernel.T_C_F.p.z();
+        random_kernel.T_C_F.M.GetQuaternion(mean_q(0), mean_q(1), mean_q(2), mean_q(3));                
+
+        std::normal_distribution<> d = std::normal_distribution<>(result_x, sigma_p_);
+        result_x = d(gen_);
+        d = std::normal_distribution<>(result_y, sigma_p_);
+        result_y = d(gen_);
+        d = std::normal_distribution<>(result_z, sigma_p_);
+        result_z = d(gen_);
+
+        double pdf_mean = misesFisherKernel(mean_q, mean_q, sigma_q_, Cp_);
+        // TODO
+        result_q = mean_q;
+        int iterations = 1;
+//        int iterations = vonMisesFisherSample(mean_q, pdf_mean, sigma_q_, Cp_, result_q);
         if (iterations < 0) {
             std::cout << "ERROR: vonMisesFisherSample" << std::endl;
         }
@@ -333,8 +404,12 @@ static const double PI(3.141592653589793);
 	    }
 
     	TiXmlElement *elementCM = doc.FirstChildElement("CollisionModel");
-	    if (!elementCM)
-	    {
+	    if (!elementCM) {
+            TiXmlElement *elementCHM = doc.FirstChildElement("CollisionAndHandModel");
+            elementCM = elementCHM->FirstChildElement("CollisionModel");
+        }
+
+        if (!elementCM) {
 		    std::cout << "ERROR: CollisionModel::readFromXml: " << "Could not find the 'CollisionModel' element in the xml file" << std::endl;
 		    return boost::shared_ptr<CollisionModel >(NULL);
 	    }
@@ -439,10 +514,17 @@ static const double PI(3.141592653589793);
         TiXmlDocument doc;
 	    TiXmlDeclaration * decl = new TiXmlDeclaration( "1.0", "", "" );
 	    doc.LinkEndChild( decl );
+	    TiXmlElement * elementCM = makeXmlNode();
+	    doc.LinkEndChild( elementCM );
+	    doc.SaveFile( filename );
+    }
+
+    TiXmlElement* CollisionModel::makeXmlNode() const {
 	    TiXmlElement * elementCM = new TiXmlElement( "CollisionModel" );
         elementCM->SetAttribute("sigma_p", double2string(sigma_p_));
         elementCM->SetAttribute("sigma_q", double2string(sigma_q_));
         elementCM->SetAttribute("sigma_r", double2string(sigma_r_));
+
         for (std::map<std::string, CollisionModel::LinkCollisionModel >::const_iterator it1 = link_models_map_.begin(); it1 != link_models_map_.end(); it1++) {
     	    TiXmlElement * elementLCM = new TiXmlElement( "LinkCollisionModel" );
             elementLCM->SetAttribute("name", it1->first);
@@ -458,8 +540,7 @@ static const double PI(3.141592653589793);
             }
     	    elementCM->LinkEndChild( elementLCM );
         }
-	    doc.LinkEndChild( elementCM );
-	    doc.SaveFile( filename );
+        return elementCM;
     }
 
 /****************************************************************************************************************************************/
@@ -734,6 +815,12 @@ static const double PI(3.141592653589793);
         TiXmlDocument doc;
 	    TiXmlDeclaration * decl = new TiXmlDeclaration( "1.0", "", "" );
 	    doc.LinkEndChild( decl );
+	    TiXmlElement * elementQD = makeXmlNode();
+	    doc.LinkEndChild( elementQD );
+	    doc.SaveFile( filename );
+    }
+
+    TiXmlElement* QueryDensity::makeXmlNode() const {
 	    TiXmlElement * elementQD = new TiXmlElement( "QueryDensity" );
         elementQD->SetAttribute("sigma_p", double2string(sigma_p_));
         elementQD->SetAttribute("sigma_q", double2string(sigma_q_));
@@ -749,9 +836,9 @@ static const double PI(3.141592653589793);
             }
     	    elementQD->LinkEndChild( elementLQD );
         }
-	    doc.LinkEndChild( elementQD );
-	    doc.SaveFile( filename );
+        return elementQD;
     }
+
 
     bool QueryDensity::QueryDensityElement::operator== (const QueryDensity::QueryDensityElement &qd) const {
         return (p_ - qd.p_).norm() < 0.00001 && (q_ - qd.q_).norm() < 0.00001 && std::fabs(weight_ - qd.weight_) < 0.00001;
@@ -835,8 +922,8 @@ static const double PI(3.141592653589793);
             }
         }
     }
-
-    void ObjectModel::sample(int seed, Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r) const {
+/*
+    int ObjectModel::sample(int seed, Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r) const {
         const int n_points = fv_.size();
         std::vector<double > weights(n_points, 1.0 / static_cast<double >(n_points));
 
@@ -992,7 +1079,59 @@ static const double PI(3.141592653589793);
         q = result_q;
         r(0) = result_pc1;
         r(1) = result_pc2;
+
+        return iterations;
     }
+*/
+
+    int ObjectModel::sample(int seed, Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r) const {
+        const int n_points = fv_.size();
+        std::mt19937 gen_(seed);
+
+        Feature rand_kernel = fv_[rand() % n_points];
+
+        double result_x, result_y, result_z;
+        Eigen::Vector4d result_q, mean_q;
+        double result_pc1, result_pc2;
+
+        result_x = rand_kernel.T_O_F_.p.x();
+        result_y = rand_kernel.T_O_F_.p.y();
+        result_z = rand_kernel.T_O_F_.p.z();
+        rand_kernel.T_O_F_.M.GetQuaternion(mean_q(0), mean_q(1), mean_q(2), mean_q(3));                
+        result_pc1 = rand_kernel.pc1_;
+        result_pc2 = rand_kernel.pc2_;
+
+        std::normal_distribution<> d(result_x, sigma_p_);
+        result_x = d(gen_);
+        d = std::normal_distribution<>(result_y, sigma_p_);
+        result_y = d(gen_);
+        d = std::normal_distribution<>(result_z, sigma_p_);
+        result_z = d(gen_);
+        double pdf_mean = misesFisherKernel(mean_q, mean_q, sigma_q_, Cp_);
+        // TODO
+        result_q = mean_q;
+        int iterations = 1;
+//        int iterations = vonMisesFisherSample(mean_q, pdf_mean, sigma_q_, Cp_, result_q);
+        if (iterations < 0) {
+            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
+        }
+        d = std::normal_distribution<>(result_pc1, sigma_r_);
+        result_pc1 = d(gen_);
+        d = std::normal_distribution<>(result_pc2, sigma_r_);
+        result_pc2 = d(gen_);
+
+        p(0) = result_x;
+        p(1) = result_y;
+        p(2) = result_z;
+        q = result_q;
+        r(0) = result_pc1;
+        r(1) = result_pc2;
+
+        return iterations;
+    }
+
+ObjectModel::Feature::Feature() {
+}
 
 ObjectModel::Feature::Feature(const KDL::Frame &T_O_F, double pc1, double pc2) {
     T_O_F_ = T_O_F;
@@ -1007,6 +1146,135 @@ void ObjectModel::addPointFeature(const KDL::Frame &T_O_F, double pc1, double pc
 
 const std::vector<ObjectModel::Feature >& ObjectModel::getPointFeatures() const {
     return fv_;
+}
+
+int ObjectModel::getFeaturesCount() const {
+    return fv_.size();
+}
+
+boost::shared_ptr<ObjectModel > ObjectModel::readFromXml(const std::string &filename) {
+        TiXmlDocument doc( filename );
+        doc.LoadFile();
+        std::unique_ptr<ObjectModel > u_om(new ObjectModel);
+
+	    if (doc.Error())
+	    {
+		    std::cout << "ERROR: ObjectModel::readFromXml: " << doc.ErrorDesc() << std::endl;
+		    doc.ClearError();
+		    return boost::shared_ptr<ObjectModel >(NULL);
+	    }
+
+    	TiXmlElement *elementOM = doc.FirstChildElement("ObjectModel");
+	    if (!elementOM)
+	    {
+		    std::cout << "ERROR: ObjectModel::readFromXml: " << "Could not find the 'ObjectModel' element in the xml file" << std::endl;
+		    return boost::shared_ptr<ObjectModel >(NULL);
+	    }
+
+    	// Get model parameters
+        double sigma_p, sigma_q, sigma_r;
+    	const char *str = elementOM->Attribute("sigma_p");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: ObjectModel::readFromXml: sigma_p" << std::endl;
+    		return boost::shared_ptr<ObjectModel >(NULL);
+    	}
+        sigma_p = string2double(str);
+
+    	str = elementOM->Attribute("sigma_q");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: ObjectModel::readFromXml: sigma_q" << std::endl;
+    		return boost::shared_ptr<ObjectModel >(NULL);
+    	}
+        sigma_q = string2double(str);
+
+    	str = elementOM->Attribute("sigma_r");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: ObjectModel::readFromXml: sigma_r" << std::endl;
+    		return boost::shared_ptr<ObjectModel >(NULL);
+    	}
+        sigma_r = string2double(str);
+
+        u_om->setSamplerParameters(sigma_p, sigma_q, sigma_r);
+
+    	str = elementOM->Attribute("path_urdf");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: ObjectModel::readFromXml: path_urdf" << std::endl;
+    		return boost::shared_ptr<ObjectModel >(NULL);
+    	}
+        u_om->path_urdf_ = str;
+
+    	str = elementOM->Attribute("package_name");
+    	if (!str)
+    	{
+		    std::cout << "ERROR: ObjectModel::readFromXml: package_name" << std::endl;
+    		return boost::shared_ptr<ObjectModel >(NULL);
+    	}
+        u_om->package_name_ = str;
+
+        int features_count = 0;
+        for (TiXmlElement* elementF = elementOM->FirstChildElement("Feature"); elementF; elementF = elementF->NextSiblingElement("Feature"), features_count++) {
+        }
+        u_om->fv_.resize(features_count);
+
+        features_count = 0;
+        for (TiXmlElement* elementF = elementOM->FirstChildElement("Feature"); elementF; elementF = elementF->NextSiblingElement("Feature"), features_count++) {
+            str = elementF->Attribute("TOF");
+            if (!str) {
+                std::cout << "ERROR: ObjectModel::readFromXml: Feature TOF" << std::endl;
+                return boost::shared_ptr<ObjectModel >(NULL);
+            }
+            u_om->fv_[features_count].T_O_F_ = string2frameKdl(str);
+
+            str = elementF->Attribute("pc1");
+            if (!str) {
+                std::cout << "ERROR: ObjectModel::readFromXml: Feature pc1" << std::endl;
+                return boost::shared_ptr<ObjectModel >(NULL);
+            }
+            u_om->fv_[features_count].pc1_ = string2double(str);
+
+            str = elementF->Attribute("pc2");
+            if (!str) {
+                std::cout << "ERROR: ObjectModel::readFromXml: Feature pc2" << std::endl;
+                return boost::shared_ptr<ObjectModel >(NULL);
+            }
+            u_om->fv_[features_count].pc2_ = string2double(str);
+	    }
+
+        return boost::shared_ptr<ObjectModel >(new ObjectModel(*u_om.get()));
+}
+
+const std::vector<ObjectModel::Feature >& ObjectModel::getFeaturesData() const {
+    return fv_;
+}
+
+void ObjectModel::writeToXml(const std::string &filename) const {
+        TiXmlDocument doc;
+	    TiXmlDeclaration * decl = new TiXmlDeclaration( "1.0", "", "" );
+	    doc.LinkEndChild( decl );
+	    TiXmlElement * elementOM = makeXmlNode();
+	    doc.LinkEndChild( elementOM );
+	    doc.SaveFile( filename );
+}
+
+TiXmlElement* ObjectModel::makeXmlNode() const {
+	    TiXmlElement * elementOM = new TiXmlElement( "ObjectModel" );
+        elementOM->SetAttribute("sigma_p", double2string(sigma_p_));
+        elementOM->SetAttribute("sigma_q", double2string(sigma_q_));
+        elementOM->SetAttribute("sigma_r", double2string(sigma_r_));
+        elementOM->SetAttribute("path_urdf", path_urdf_);
+        elementOM->SetAttribute("package_name", package_name_);
+        for (std::vector<Feature >::const_iterator it = fv_.begin(); it != fv_.end(); it++) {
+    	    TiXmlElement * elementF = new TiXmlElement( "Feature" );
+            elementF->SetAttribute("TOF", frameKdl2string(it->T_O_F_));
+            elementF->SetAttribute("pc1", double2string(it->pc1_));
+            elementF->SetAttribute("pc2", double2string(it->pc2_));
+    	    elementOM->LinkEndChild( elementF );
+        }
+        return elementOM;
 }
 
 /******************************************************************************************************************/
@@ -1120,6 +1388,11 @@ double HandConfigurationModel::getDensity(const std::map<std::string, double>& q
 	    }
 
     	TiXmlElement *elementHCM = doc.FirstChildElement("HandConfigurationModel");
+	    if (!elementHCM) {
+            TiXmlElement *elementCHM = doc.FirstChildElement("CollisionAndHandModel");
+            elementHCM = elementCHM->FirstChildElement("HandConfigurationModel");
+        }
+
 	    if (!elementHCM)
 	    {
 		    std::cout << "ERROR: HandConfigurationModel::readFromXml: " << "Could not find the 'HandConfigurationModel' element in the xml file" << std::endl;
@@ -1185,6 +1458,12 @@ double HandConfigurationModel::getDensity(const std::map<std::string, double>& q
         TiXmlDocument doc;
 	    TiXmlDeclaration * decl = new TiXmlDeclaration( "1.0", "", "" );
 	    doc.LinkEndChild( decl );
+	    TiXmlElement * elementHCM = makeXmlNode();
+	    doc.LinkEndChild( elementHCM );
+	    doc.SaveFile( filename );
+    }
+
+    TiXmlElement* HandConfigurationModel::makeXmlNode() const {
 	    TiXmlElement * elementHCM = new TiXmlElement( "HandConfigurationModel" );
         elementHCM->SetAttribute("sigma_c", double2string(sigma_c_));
         for (int qidx = 0; qidx < joint_names_.size(); qidx++) {
@@ -1203,81 +1482,47 @@ double HandConfigurationModel::getDensity(const std::map<std::string, double>& q
             elementS->SetAttribute("value", strs.str());
     	    elementHCM->LinkEndChild( elementS );
         }
-	    doc.LinkEndChild( elementHCM );
-	    doc.SaveFile( filename );
+        return elementHCM;
     }
 
-/*******************************************************************************************************************************************************/
-
-    boost::shared_ptr<GraspState > GraspState::readFromXml(const std::string &filename) {
-        TiXmlDocument doc( filename );
-        doc.LoadFile();
-        std::unique_ptr<GraspState > u_gs(new GraspState);
-
-	    if (doc.Error())
-	    {
-		    std::cout << "ERROR: GraspState::readFromXml: " << doc.ErrorDesc() << std::endl;
-		    doc.ClearError();
-		    return boost::shared_ptr<GraspState >(NULL);
-	    }
-
-    	TiXmlElement *elementGS = doc.FirstChildElement("GraspState");
-	    if (!elementGS)
-	    {
-		    std::cout << "ERROR: GraspState::readFromXml: " << "Could not find the 'GraspState' element in the xml file" << std::endl;
-		    return boost::shared_ptr<GraspState >(NULL);
-	    }
-
-    	// Get model parameters
-    	const char *str = elementGS->Attribute("TEO");
-    	if (!str)
-    	{
-		    std::cout << "ERROR: GraspState::readFromXml: TEO" << std::endl;
-    		return boost::shared_ptr<GraspState >(NULL);
-    	}
-        u_gs->T_E_O_ = string2frameKdl(str);
-
-        str = elementGS->Attribute("path");
-    	if (!str)
-    	{
-		    std::cout << "ERROR: GraspState::readFromXml: path" << std::endl;
-    		return boost::shared_ptr<GraspState >(NULL);
-    	}
-        u_gs->path_urdf_ = str;
-
-	    for (TiXmlElement* elementJ = elementGS->FirstChildElement("Joint"); elementJ; elementJ = elementJ->NextSiblingElement("Joint")) {
-        	str = elementJ->Attribute("name");
-            if (!str) {
-		        std::cout << "ERROR: GraspState::readFromXml: Joint name" << std::endl;
-        		return boost::shared_ptr<GraspState >(NULL);
-            }
-            std::string joint_name( str );
-
-        	str = elementJ->Attribute("value");
-            if (!str) {
-		        std::cout << "ERROR: GraspState::readFromXml: Joint value" << std::endl;
-        		return boost::shared_ptr<GraspState >(NULL);
-            }
-            u_gs->q_map_[joint_name] = string2double( str );
-	    }
-
-        return boost::shared_ptr<GraspState >(new GraspState(*u_gs.get()));
-    }
-
-    void GraspState::writeToXml(const std::string &filename) const {
+void writeToXml(const std::string &filename, const boost::shared_ptr<CollisionModel > &cm, const boost::shared_ptr<HandConfigurationModel > &hcm) {
         TiXmlDocument doc;
 	    TiXmlDeclaration * decl = new TiXmlDeclaration( "1.0", "", "" );
 	    doc.LinkEndChild( decl );
-	    TiXmlElement * elementGS = new TiXmlElement( "GraspState" );
-        elementGS->SetAttribute("TEO", frameKdl2string(T_E_O_));
-        elementGS->SetAttribute("path", path_urdf_);
-        for (std::map<std::string, double >::const_iterator it = q_map_.begin(); it != q_map_.end(); it++) {
-    	    TiXmlElement * elementJ = new TiXmlElement( "Joint" );
-            elementJ->SetAttribute("name", it->first);
-            elementJ->SetAttribute("value", double2string(it->second));
-    	    elementGS->LinkEndChild( elementJ );
-        }
-	    doc.LinkEndChild( elementGS );
+	    TiXmlElement * elementCM = cm->makeXmlNode();
+	    doc.LinkEndChild( elementCM );
+	    TiXmlElement * elementHCM = hcm->makeXmlNode();
+	    doc.LinkEndChild( elementHCM );
 	    doc.SaveFile( filename );
-    }
+}
+
+void writeToXml(const std::string &filename, const boost::shared_ptr<QueryDensity > &qd, const boost::shared_ptr<CollisionModel > &cm,
+                const boost::shared_ptr<HandConfigurationModel > &hcm) {
+        TiXmlDocument doc;
+	    TiXmlDeclaration * decl = new TiXmlDeclaration( "1.0", "", "" );
+	    doc.LinkEndChild( decl );
+	    TiXmlElement * elementQD = qd->makeXmlNode();
+	    doc.LinkEndChild( elementQD );
+	    TiXmlElement * elementCM = cm->makeXmlNode();
+	    doc.LinkEndChild( elementCM );
+	    TiXmlElement * elementHCM = hcm->makeXmlNode();
+	    doc.LinkEndChild( elementHCM );
+	    doc.SaveFile( filename );
+}
+
+void writeToXml(const std::string &filename, const boost::shared_ptr<QueryDensity > &qd, const boost::shared_ptr<CollisionModel > &cm,
+                const boost::shared_ptr<HandConfigurationModel > &hcm, const boost::shared_ptr<ObjectModel > &om) {
+        TiXmlDocument doc;
+	    TiXmlDeclaration * decl = new TiXmlDeclaration( "1.0", "", "" );
+	    doc.LinkEndChild( decl );
+	    TiXmlElement * elementQD = qd->makeXmlNode();
+	    doc.LinkEndChild( elementQD );
+	    TiXmlElement * elementCM = cm->makeXmlNode();
+	    doc.LinkEndChild( elementCM );
+	    TiXmlElement * elementHCM = hcm->makeXmlNode();
+	    doc.LinkEndChild( elementHCM );
+	    TiXmlElement * elementOM = om->makeXmlNode();
+	    doc.LinkEndChild( elementOM );
+	    doc.SaveFile( filename );
+}
 

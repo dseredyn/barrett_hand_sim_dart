@@ -105,46 +105,15 @@ void getFK(const dart::dynamics::SkeletonPtr &bh, const std::map<std::string, do
     }
 }
 
-void generateQueryDensity(int seed, const std::string &link_name, const boost::shared_ptr<CollisionModel > &cm, const ObjectModel &om,
-                            std::vector<QueryDensity::QueryDensityElement > &qd_vec) {
-        double sum_weights = 0.0;
-        for (int i = 0; i < qd_vec.size(); i++) {
-            Eigen::Vector3d p, p2;
-            Eigen::Vector4d q, q2;
-            Eigen::Vector2d r;
-            om.sample(seed, p, q, r);
-
-            if (!cm->sampleForR(seed, link_name, r, p2, q2)) {
-                std::cout << "ERROR: cm->sampleForR" << std::endl;
-            }
-            double weight = cm->getMarginalDensityForR(link_name, r);
-            KDL::Frame T_O_F( KDL::Frame(KDL::Rotation::Quaternion(q(0), q(1), q(2), q(3)), KDL::Vector(p(0), p(1), p(2))) );
-            KDL::Frame T_C_F( KDL::Frame(KDL::Rotation::Quaternion(q2(0), q2(1), q2(2), q2(3)), KDL::Vector(p2(0), p2(1), p2(2))) );
-            KDL::Frame T_L_C;
-            if (!cm->getT_L_C(link_name, T_L_C)) {
-                std::cout << "ERROR: generateQueryDensity: " << link_name << std::endl;
-            }
-            KDL::Frame T_O_C = T_O_F * T_C_F.Inverse();
-
-            qd_vec[i].p_ = Eigen::Vector3d(T_O_C.p.x(), T_O_C.p.y(), T_O_C.p.z());
-            double qx, qy, qz, qw;
-            T_O_C.M.GetQuaternion(qx, qy, qz, qw);
-            qd_vec[i].q_ = Eigen::Vector4d(qx, qy, qz, qw);
-            qd_vec[i].weight_ = weight;
-            sum_weights += qd_vec[i].weight_;
-        }
-        // normalize the weights
-        for (int i = 0; i < qd_vec.size(); i++) {
-            qd_vec[i].weight_ /= sum_weights;
-        }
-}
-
 int main(int argc, char** argv) {
+    if (argc != 2) {
+        std::cout << "usage:" << std::endl;
+        std::cout << "query_density" << std::endl;
+
+        return 0;
+    }
+
     srand ( time(NULL) );
-
-    boost::shared_ptr<GraspState > gs = GraspState::readFromXml("gs.xml");
-
-    std::cout << gs->path_urdf_ << std::endl;
 
     ros::init(argc, argv, "dart_test");
 
@@ -155,6 +124,11 @@ int main(int argc, char** argv) {
         nh_.getParam("/robot_semantic_description", robot_semantic_description_str);
 
     ros::Rate loop_rate(400);
+
+    boost::shared_ptr<QueryDensity > qd = QueryDensity::readFromXml(argv[1]);
+    boost::shared_ptr<CollisionModel > cm = CollisionModel::readFromXml(argv[1]);
+    boost::shared_ptr<HandConfigurationModel > hm = HandConfigurationModel::readFromXml(argv[1]);
+    boost::shared_ptr<ObjectModel > om = ObjectModel::readFromXml(argv[1]);
 
     ros::Publisher joint_state_pub_;
     joint_state_pub_ = nh_.advertise<sensor_msgs::JointState>("/joint_states", 10);
@@ -176,18 +150,21 @@ int main(int argc, char** argv) {
     KDLToEigenTf(KDL::Frame( KDL::Rotation::RotX(180.0/180.0*PI), KDL::Vector(0.0, 0.0, 0.22) ), tf);
     bh->getJoint(0)->setTransformFromParentBodyNode(tf);
 
-    dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(package_path_sim + gs->path_urdf_) );
-    KDLToEigenTf(KDL::Frame( KDL::Vector(0.0, 0.0, 0.07) ), tf);
-    domino->getJoint(0)->setTransformFromParentBodyNode(tf);
+//    dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(package_path_sim + om->path_urdf_) );
+//    KDLToEigenTf(KDL::Frame( KDL::Vector(0.0, 0.0, 0.0) ), tf);
+//    domino->getJoint(0)->setTransformFromParentBodyNode(tf);
 
     dart::simulation::World* world = new dart::simulation::World();
 
     world->addSkeleton(bh);
-    world->addSkeleton(domino);
+//    world->addSkeleton(domino);
 
     Eigen::Vector3d grav(0,0,0);
     world->setGravity(grav);
 
+    KDL::Frame T_W_O;
+
+/*
     for (std::map<std::string, double>::const_iterator it = gs->q_map_.begin(); it != gs->q_map_.end(); it++) {
         dart::dynamics::Joint *j = bh->getJoint( it-> first );
         j->setPosition( 0, it->second );
@@ -237,172 +214,11 @@ int main(int argc, char** argv) {
         ros::spinOnce();
         loop_rate.sleep();
     }
-
-    // calculate point clouds for all links and for the grasped object
-    std::map<std::string, pcl::PointCloud<pcl::PointNormal>::Ptr > point_clouds_map;
-    std::map<std::string, pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr > point_pc_clouds_map;
-    std::map<std::string, KDL::Frame > frames_map;
-    std::map<std::string, boost::shared_ptr<std::vector<KDL::Frame > > > features_map;
-    std::map<std::string, boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > > grids_map;
-    for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
-        dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
-
-        for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
-            dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
-            const Eigen::Isometry3d &tf = b->getTransform();
-            const std::string &body_name = b->getName();
-            KDL::Frame T_W_L;
-            EigenTfToKDL(tf, T_W_L);
-            std::cout << body_name << "   " << b->getNumCollisionShapes() << std::endl;
-            for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
-                dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
-                if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
-                    std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-                    std::cout << "mesh path: " << msh->getMeshPath() << std::endl;
-                    const Eigen::Isometry3d &tf = sh->getLocalTransform();
-                    KDL::Frame T_L_S;
-                    EigenTfToKDL(tf, T_L_S);
-                    KDL::Frame T_S_L = T_L_S.Inverse();
-
-                    const aiScene *sc = msh->getMesh();
-                    if (sc->mNumMeshes != 1) {
-                        std::cout << "ERROR: sc->mNumMeshes = " << sc->mNumMeshes << std::endl;
-                    }
-                    int midx = 0;
-//                    std::cout << "v: " << sc->mMeshes[midx]->mNumVertices << "   f: " << sc->mMeshes[midx]->mNumFaces << std::endl;
-                    pcl::PointCloud<pcl::PointNormal>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointNormal>);
-                    uniform_sampling(sc->mMeshes[midx], 100000, *cloud_1);
-                    for (int pidx = 0; pidx < cloud_1->points.size(); pidx++) {
-                        KDL::Vector pt_L = T_L_S * KDL::Vector(cloud_1->points[pidx].x, cloud_1->points[pidx].y, cloud_1->points[pidx].z);
-                        cloud_1->points[pidx].x = pt_L.x();
-                        cloud_1->points[pidx].y = pt_L.y();
-                        cloud_1->points[pidx].z = pt_L.z();
-                    }
-                    // Voxelgrid
-                    boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > grid_(new pcl::VoxelGrid<pcl::PointNormal>);
-                    pcl::PointCloud<pcl::PointNormal>::Ptr res(new pcl::PointCloud<pcl::PointNormal>);
-                    grid_->setDownsampleAllData(true);
-                    grid_->setSaveLeafLayout(true);
-                    grid_->setInputCloud(cloud_1);
-                    grid_->setLeafSize(0.005, 0.005, 0.005);
-                    grid_->filter (*res);
-                    point_clouds_map[body_name] = res;
-                    frames_map[body_name] = T_W_L;
-                    grids_map[body_name] = grid_;
-
-                    std::cout << "res->points.size(): " << res->points.size() << std::endl;
-
-                    pcl::search::KdTree<pcl::PointNormal>::Ptr tree (new pcl::search::KdTree<pcl::PointNormal>);
-
-                    // Setup the principal curvatures computation
-                    pcl::PrincipalCurvaturesEstimation<pcl::PointNormal, pcl::PointNormal, pcl::PrincipalCurvatures> principalCurvaturesEstimation;
-
-                    // Provide the original point cloud (without normals)
-                    principalCurvaturesEstimation.setInputCloud (res);
-
-                    // Provide the point cloud with normals
-                    principalCurvaturesEstimation.setInputNormals(res);
-
-                    // Use the same KdTree from the normal estimation
-                    principalCurvaturesEstimation.setSearchMethod (tree);
-                    principalCurvaturesEstimation.setRadiusSearch(0.008);
-
-                    // Actually compute the principal curvatures
-                    pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures (new pcl::PointCloud<pcl::PrincipalCurvatures> ());
-                    principalCurvaturesEstimation.compute (*principalCurvatures);
-                    point_pc_clouds_map[body_name] = principalCurvatures;
-
-                    features_map[body_name].reset( new std::vector<KDL::Frame >(res->points.size()) );
-                    for (int pidx = 0; pidx < res->points.size(); pidx++) {
-                        KDL::Vector nx, ny, nz(res->points[pidx].normal[0], res->points[pidx].normal[1], res->points[pidx].normal[2]);
-                        if ( std::fabs( principalCurvatures->points[pidx].pc1 - principalCurvatures->points[pidx].pc2 ) > 0.001) {
-                            nx = KDL::Vector(principalCurvatures->points[pidx].principal_curvature[0], principalCurvatures->points[pidx].principal_curvature[1], principalCurvatures->points[pidx].principal_curvature[2]);
-                        }
-                        else {
-                            if (std::fabs(nz.z()) < 0.7) {
-                                nx = KDL::Vector(0, 0, 1);
-                            }
-                            else {
-                                nx = KDL::Vector(1, 0, 0);
-                            }
-                        }
-                        ny = nz * nx;
-                        nx = ny * nz;
-                        nx.Normalize();
-                        ny.Normalize();
-                        nz.Normalize();
-                        (*features_map[body_name])[pidx] = KDL::Frame( KDL::Rotation(nx, ny, nz), KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) );
-                    }
-                }
-            }
-        }
-    }
+*/
 
     const double sigma_p = 0.005;
     const double sigma_q = 100.0;
     const double sigma_r = 0.05;
-
-    int m_id = 101;
-
-    // generate object model
-    const std::string &ob_name = domino->getRootBodyNode()->getName();
-    ObjectModel om;
-
-    for (int pidx = 0; pidx < point_clouds_map[ob_name]->points.size(); pidx++) {
-        if (point_pc_clouds_map[ob_name]->points[pidx].pc1 > 1.1 * point_pc_clouds_map[ob_name]->points[pidx].pc2) {
-            // e.g. pc1=1, pc2=0
-            // edge
-            om.addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(PI)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
-            om.addPointFeature((*features_map[ob_name])[pidx], point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
-        }
-        else {
-            for (double angle = 0.0; angle < 359.0/180.0*PI; angle += 20.0/180.0*PI) {
-                om.addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(angle)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
-            }
-        }
-    }
-
-    std::cout << "om.getPointFeatures().size(): " << om.getPointFeatures().size() << std::endl;
-    T_W_O = frames_map[ob_name];
-
-    // generate collision model
-    std::map<std::string, std::list<std::pair<int, double> > > link_pt_map;
-    boost::shared_ptr<CollisionModel > cm(new CollisionModel);
-    cm->setSamplerParameters(sigma_p, sigma_q, sigma_r);
-
-    std::list<std::string > gripper_link_names;
-    for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
-        const std::string &link_name = bh->getBodyNode(bidx)->getName();
-        gripper_link_names.push_back(link_name);
-    }
-
-    double dist_range = 0.01;
-    for (std::list<std::string >::const_iterator nit = gripper_link_names.begin(); nit != gripper_link_names.end(); nit++) {
-        const std::string &link_name = (*nit);
-        if (point_clouds_map.find( link_name ) == point_clouds_map.end()) {
-            continue;
-        }
-        cm->addLinkContacts(dist_range, link_name, point_clouds_map[link_name], frames_map[link_name],
-                            om.getPointFeatures(), T_W_O);
-    }
-
-    // generate hand configuration model
-    boost::shared_ptr<HandConfigurationModel > hm(new HandConfigurationModel);
-    std::map<std::string, double> joint_q_map_before( gs->q_map_ );
-
-    double angleDiffKnuckleTwo = 15.0/180.0*PI;
-    joint_q_map_before["right_HandFingerOneKnuckleTwoJoint"] -= angleDiffKnuckleTwo;
-    joint_q_map_before["right_HandFingerTwoKnuckleTwoJoint"] -= angleDiffKnuckleTwo;
-    joint_q_map_before["right_HandFingerThreeKnuckleTwoJoint"] -= angleDiffKnuckleTwo;
-    joint_q_map_before["right_HandFingerOneKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
-    joint_q_map_before["right_HandFingerTwoKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
-    joint_q_map_before["right_HandFingerThreeKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
-
-    hm->generateModel(joint_q_map_before, gs->q_map_, 1.0, 30, 0.05);
-
-    hm->writeToXml("hm.xml");
-    cm->writeToXml("cm.xml");
-
 
 //    {
 //        KDL::Frame T_L_C;
@@ -413,38 +229,9 @@ int main(int argc, char** argv) {
 //    m_id = visualiseRejectionSamplingVonMisesFisher3(markers_pub, m_id);
 //    m_id = visualiseRejectionSamplingVonMisesFisher4(markers_pub, m_id);
 
-    std::vector<double > weights(om.getPointFeatures().size());
 
     std::random_device rd;
     std::mt19937 gen(rd());
-
-    boost::shared_ptr<QueryDensity > qd = QueryDensity::readFromXml("qd.xml");
-/*
-    boost::shared_ptr<QueryDensity > qd(new QueryDensity);
-
-    om.setSamplerParameters(sigma_p, sigma_q, sigma_r);
-    qd->setSamplerParameters(sigma_p, sigma_q);
-
-    // generate query density using multiple threads
-    {
-        const int qd_sample_count = 50000;
-        const int num_threads = cm->getLinkNamesCol().size();
-        std::unique_ptr<std::thread[] > t(new std::thread[num_threads]);
-        std::unique_ptr<std::vector<QueryDensity::QueryDensityElement >[] > qd_vec(new std::vector<QueryDensity::QueryDensityElement >[num_threads]);
-
-        for (int thread_id = 0; thread_id < num_threads; thread_id++) {
-            qd_vec[thread_id].resize(qd_sample_count);
-            std::vector<QueryDensity::QueryDensityElement > aaa;
-            t[thread_id] = std::thread(generateQueryDensity, gen(), std::cref(cm->getLinkNamesCol()[thread_id]), std::cref(cm), std::cref(om), std::ref(qd_vec[thread_id]));
-        }
-
-        for (int thread_id = 0; thread_id < num_threads; ++thread_id) {
-            t[thread_id].join();
-            qd->addQueryDensity(cm->getLinkNamesCol()[thread_id], qd_vec[thread_id]);
-        }
-    }
-    qd->writeToXml("qd.xml");
-//*/
 
 /*
     boost::shared_ptr<QueryDensity > pqd = QueryDensity::readFromXml("qd.xml");
@@ -459,11 +246,6 @@ int main(int argc, char** argv) {
     return 0;
 */
 //    m_id = visualiseQueryDensityParticles(markers_pub, m_id, qd->qd_map_["right_HandFingerTwoKnuckleThreeLink"].vec_, ob_name);
-//    {
-//        KDL::Frame T_L_C;
-//        cm->getT_L_C("right_HandFingerTwoKnuckleThreeLink", T_L_C);
-//        m_id = visualiseQueryDensityFunction(br, markers_pub, m_id, qd, "right_HandFingerTwoKnuckleThreeLink", T_L_C, T_W_O, ob_name);
-//    }
 
 
     double cost_max = 0.0;
@@ -519,10 +301,35 @@ int main(int argc, char** argv) {
 
     std::cout << "best: " << cost_max << "   good_grasps_count " << good_grasps_count << std::endl;
 
-//    return 0;
+    const std::vector<ObjectModel::Feature > &om_f_vec = om->getFeaturesData();
+    std::cout << "om_f_vec: " << om_f_vec.size() << std::endl;
+
     double temperature = 100.0;
 
     // visualisation
+
+    // publish grasped object model
+    int m_id = 0;
+    publishTransform(br, T_W_O, "graspable", "world");
+    for (int i = 0; i < om_f_vec.size(); i++) {
+        if (rand() % 4 == 0) {
+            m_id = markers_pub.addSinglePointMarkerCube(m_id, om_f_vec[i].T_O_F_.p, 1, 1, 1, 1, 0.001, 0.001, 0.001, "graspable");
+        }
+    }
+
+/*
+    {
+        KDL::Frame T_L_C;
+        cm->getT_L_C("right_HandFingerTwoKnuckleThreeLink", T_L_C);
+        m_id = visualiseQueryDensityFunction(br, markers_pub, m_id, *qd.get(), "right_HandFingerTwoKnuckleThreeLink", T_L_C, T_W_O, "graspable");
+    }
+
+        markers_pub.publish();
+        ros::spinOnce();
+        loop_rate.sleep();
+        ros::Duration(1.0).sleep();
+    return 0;
+*/
     for (int i = 0; i < 100000; i++) {
 
         // Position its base in a reasonable way
@@ -533,6 +340,7 @@ int main(int argc, char** argv) {
             j->setPosition( 0, it->second );
         }
 
+        // publish transforms of the gripper
         for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
             dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
             const Eigen::Isometry3d &tf = b->getTransform();
@@ -541,7 +349,7 @@ int main(int argc, char** argv) {
             publishTransform(br, T_W_L, b->getName(), "world");
         }
 
-        int m_id = 0;
+/*
         for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
             dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
             if (sk->getName() == bh->getName()) {
@@ -563,6 +371,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
+*/
         markers_pub.publish();
         ros::spinOnce();
         loop_rate.sleep();

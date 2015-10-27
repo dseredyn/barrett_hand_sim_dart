@@ -41,6 +41,8 @@
 #include <time.h>
 #include <fstream>
 
+#include <boost/filesystem.hpp>
+
 #include <thread>
 
 #include "Eigen/Dense"
@@ -68,81 +70,17 @@
 
 const double PI(3.141592653589793);
 
-double getTransitionProbability(double cost1, double cost2, double temperature) {
-    if (std::fabs(cost2) < 0.0000001) {
-        return 0.0;
-    }
-    if (cost2 > cost1) {
-        return 1.0;
-    }
-    
-    return temperature / 100.0 * 0.05;
-}
-
-void getFK(const dart::dynamics::SkeletonPtr &bh, const std::map<std::string, double> &q_map, const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) {
-    std::map<std::string, double> saved_q_map;
-    for (std::map<std::string, double>::const_iterator it = q_map.begin(); it != q_map.end(); it++) {
-        dart::dynamics::Joint *j = bh->getJoint( it-> first );
-        saved_q_map[it->first] = j->getPosition( 0 );
-        j->setPosition( 0, it->second );
-    }
-
-    KDL::Frame T_W_L1, T_W_L2;
-
-    dart::dynamics::BodyNode *b1 = bh->getBodyNode(link1_name);
-    const Eigen::Isometry3d &tf1 = b1->getTransform();
-    EigenTfToKDL(tf1, T_W_L1);
-
-    dart::dynamics::BodyNode *b2 = bh->getBodyNode(link2_name);
-    const Eigen::Isometry3d &tf2 = b2->getTransform();
-    EigenTfToKDL(tf2, T_W_L2);
-
-    T_L1_L2 = T_W_L1.Inverse() * T_W_L2;
-
-    for (std::map<std::string, double>::const_iterator it = saved_q_map.begin(); it != saved_q_map.end(); it++) {
-        dart::dynamics::Joint *j = bh->getJoint( it-> first );
-        j->setPosition( 0, it->second );
-    }
-}
-
-void generateQueryDensity(int seed, const std::string &link_name, const boost::shared_ptr<CollisionModel > &cm, const ObjectModel &om,
-                            std::vector<QueryDensity::QueryDensityElement > &qd_vec) {
-        double sum_weights = 0.0;
-        for (int i = 0; i < qd_vec.size(); i++) {
-            Eigen::Vector3d p, p2;
-            Eigen::Vector4d q, q2;
-            Eigen::Vector2d r;
-            om.sample(seed, p, q, r);
-
-            if (!cm->sampleForR(seed, link_name, r, p2, q2)) {
-                std::cout << "ERROR: cm->sampleForR" << std::endl;
-            }
-            double weight = cm->getMarginalDensityForR(link_name, r);
-            KDL::Frame T_O_F( KDL::Frame(KDL::Rotation::Quaternion(q(0), q(1), q(2), q(3)), KDL::Vector(p(0), p(1), p(2))) );
-            KDL::Frame T_C_F( KDL::Frame(KDL::Rotation::Quaternion(q2(0), q2(1), q2(2), q2(3)), KDL::Vector(p2(0), p2(1), p2(2))) );
-            KDL::Frame T_L_C;
-            if (!cm->getT_L_C(link_name, T_L_C)) {
-                std::cout << "ERROR: generateQueryDensity: " << link_name << std::endl;
-            }
-            KDL::Frame T_O_C = T_O_F * T_C_F.Inverse();
-
-            qd_vec[i].p_ = Eigen::Vector3d(T_O_C.p.x(), T_O_C.p.y(), T_O_C.p.z());
-            double qx, qy, qz, qw;
-            T_O_C.M.GetQuaternion(qx, qy, qz, qw);
-            qd_vec[i].q_ = Eigen::Vector4d(qx, qy, qz, qw);
-            qd_vec[i].weight_ = weight;
-            sum_weights += qd_vec[i].weight_;
-        }
-        // normalize the weights
-        for (int i = 0; i < qd_vec.size(); i++) {
-            qd_vec[i].weight_ /= sum_weights;
-        }
-}
-
 int main(int argc, char** argv) {
+
+    if (argc != 4) {
+        std::cout << "usage:" << std::endl;
+        std::cout << argv[0] << " grasp_state_file object_model_file out_models_file" << std::endl;
+        return 0;
+    }
     srand ( time(NULL) );
 
-    boost::shared_ptr<GraspState > gs = GraspState::readFromXml("gs.xml");
+    boost::shared_ptr<GraspState > gs = GraspState::readFromXml(argv[1]);
+    boost::shared_ptr<ObjectModel > om = ObjectModel::readFromXml(argv[2]);
 
     std::cout << gs->path_urdf_ << std::endl;
 
@@ -162,7 +100,7 @@ int main(int argc, char** argv) {
     MarkerPublisher markers_pub(nh_);
 
     std::string package_path_barrett = ros::package::getPath("barrett_hand_defs");
-    std::string package_path_sim = ros::package::getPath("barrett_hand_sim_dart");
+    std::string package_path_sim = ros::package::getPath(om->package_name_);
 
     // Load the Skeleton from a file
     dart::utils::DartLoader loader;
@@ -176,7 +114,7 @@ int main(int argc, char** argv) {
     KDLToEigenTf(KDL::Frame( KDL::Rotation::RotX(180.0/180.0*PI), KDL::Vector(0.0, 0.0, 0.22) ), tf);
     bh->getJoint(0)->setTransformFromParentBodyNode(tf);
 
-    dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(package_path_sim + gs->path_urdf_) );
+    dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(package_path_sim + om->path_urdf_) );
     KDLToEigenTf(KDL::Frame( KDL::Vector(0.0, 0.0, 0.07) ), tf);
     domino->getJoint(0)->setTransformFromParentBodyNode(tf);
 
@@ -346,23 +284,23 @@ int main(int argc, char** argv) {
 
     // generate object model
     const std::string &ob_name = domino->getRootBodyNode()->getName();
-    ObjectModel om;
-
+/*
     for (int pidx = 0; pidx < point_clouds_map[ob_name]->points.size(); pidx++) {
         if (point_pc_clouds_map[ob_name]->points[pidx].pc1 > 1.1 * point_pc_clouds_map[ob_name]->points[pidx].pc2) {
             // e.g. pc1=1, pc2=0
             // edge
-            om.addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(PI)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
-            om.addPointFeature((*features_map[ob_name])[pidx], point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
+            om->addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(PI)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
+            om->addPointFeature((*features_map[ob_name])[pidx], point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
         }
         else {
             for (double angle = 0.0; angle < 359.0/180.0*PI; angle += 20.0/180.0*PI) {
-                om.addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(angle)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
+                om->addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(angle)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
             }
         }
     }
+*/
 
-    std::cout << "om.getPointFeatures().size(): " << om.getPointFeatures().size() << std::endl;
+    std::cout << "om.getPointFeatures().size(): " << om->getPointFeatures().size() << std::endl;
     T_W_O = frames_map[ob_name];
 
     // generate collision model
@@ -383,7 +321,7 @@ int main(int argc, char** argv) {
             continue;
         }
         cm->addLinkContacts(dist_range, link_name, point_clouds_map[link_name], frames_map[link_name],
-                            om.getPointFeatures(), T_W_O);
+                            om->getPointFeatures(), T_W_O);
     }
 
     // generate hand configuration model
@@ -400,231 +338,7 @@ int main(int argc, char** argv) {
 
     hm->generateModel(joint_q_map_before, gs->q_map_, 1.0, 30, 0.05);
 
-    hm->writeToXml("hm.xml");
-    cm->writeToXml("cm.xml");
-
-
-//    {
-//        KDL::Frame T_L_C;
-//        cm->getT_L_C("right_HandFingerTwoKnuckleThreeLink", T_L_C);
-//        m_id = visualiseContactRegion( markers_pub, m_id, cm->getLinkFeatures("right_HandFingerTwoKnuckleThreeLink"), T_L_C, T_W_E * frames_map["right_HandPalmLink"].Inverse() * frames_map["right_HandFingerTwoKnuckleThreeLink"] );
-//    }
-//    m_id = visualiseAllFeatures(markers_pub, m_id, om.getPointFeatures(), ob_name);
-//    m_id = visualiseRejectionSamplingVonMisesFisher3(markers_pub, m_id);
-//    m_id = visualiseRejectionSamplingVonMisesFisher4(markers_pub, m_id);
-
-    std::vector<double > weights(om.getPointFeatures().size());
-
-    std::random_device rd;
-    std::mt19937 gen(rd());
-
-    boost::shared_ptr<QueryDensity > qd = QueryDensity::readFromXml("qd.xml");
-/*
-    boost::shared_ptr<QueryDensity > qd(new QueryDensity);
-
-    om.setSamplerParameters(sigma_p, sigma_q, sigma_r);
-    qd->setSamplerParameters(sigma_p, sigma_q);
-
-    // generate query density using multiple threads
-    {
-        const int qd_sample_count = 50000;
-        const int num_threads = cm->getLinkNamesCol().size();
-        std::unique_ptr<std::thread[] > t(new std::thread[num_threads]);
-        std::unique_ptr<std::vector<QueryDensity::QueryDensityElement >[] > qd_vec(new std::vector<QueryDensity::QueryDensityElement >[num_threads]);
-
-        for (int thread_id = 0; thread_id < num_threads; thread_id++) {
-            qd_vec[thread_id].resize(qd_sample_count);
-            std::vector<QueryDensity::QueryDensityElement > aaa;
-            t[thread_id] = std::thread(generateQueryDensity, gen(), std::cref(cm->getLinkNamesCol()[thread_id]), std::cref(cm), std::cref(om), std::ref(qd_vec[thread_id]));
-        }
-
-        for (int thread_id = 0; thread_id < num_threads; ++thread_id) {
-            t[thread_id].join();
-            qd->addQueryDensity(cm->getLinkNamesCol()[thread_id], qd_vec[thread_id]);
-        }
-    }
-    qd->writeToXml("qd.xml");
-//*/
-
-/*
-    boost::shared_ptr<QueryDensity > pqd = QueryDensity::readFromXml("qd.xml");
-    if (*pqd.get() == *qd.get()) {
-        std::cout << "the same" << std::endl;
-    }
-    else {
-        std::cout << "different" << std::endl;
-    }
-//    pqd->writeToXml("qd2.xml");
-
-    return 0;
-*/
-//    m_id = visualiseQueryDensityParticles(markers_pub, m_id, qd->qd_map_["right_HandFingerTwoKnuckleThreeLink"].vec_, ob_name);
-//    {
-//        KDL::Frame T_L_C;
-//        cm->getT_L_C("right_HandFingerTwoKnuckleThreeLink", T_L_C);
-//        m_id = visualiseQueryDensityFunction(br, markers_pub, m_id, qd, "right_HandFingerTwoKnuckleThreeLink", T_L_C, T_W_O, ob_name);
-//    }
-
-
-    double cost_max = 0.0;
-    int good_grasps_count = 0;
-    KDL::Frame T_W_E_best;
-    std::map<std::string, double> q_best;
-    for (int  i = 0; i < 4000; i++) {
-        const std::string &link_name = cm->getRandomLinkNameCol();
-        KDL::Frame T_O_L1;
-        KDL::Frame T_O_C1;
-        qd->sampleQueryDensity(gen(), link_name, T_O_C1);
-        KDL::Frame T_L1_C;
-        cm->getT_L_C(link_name, T_L1_C);
-        T_O_L1 = T_O_C1 * T_L1_C.Inverse();
-        std::map<std::string, double> q_sample;
-        hm->sample(gen(), q_sample);
-
-        double cost = qd->getQueryDensity(link_name, T_O_L1 * T_L1_C);
-        for (std::vector<std::string >::const_iterator lit = cm->getLinkNamesCol().begin(); lit != cm->getLinkNamesCol().end(); lit++) {
-            if (cost < 0.0000001) {
-                cost = 0.0;
-                break;
-            }
-            if (link_name == (*lit)) {
-                continue;
-            }
-
-            KDL::Frame T_L2_C;
-            cm->getT_L_C((*lit), T_L2_C);
-            KDL::Frame T_L1_L2;
-            getFK(bh, q_sample, link_name, (*lit), T_L1_L2);
-            KDL::Frame T_O_L2( T_O_L1 * T_L1_L2 );
-            cost *= qd->getQueryDensity((*lit), T_O_L2 * T_L2_C);
-        }
-
-        KDL::Frame T_L1_E;
-        getFK(bh, q_sample, link_name, "right_HandPalmLink", T_L1_E);
-
-        if (cost > cost_max) {
-            cost_max = cost;
-            T_W_E_best = T_W_O * T_O_L1 * T_L1_E;
-            q_best = q_sample;
-        }
-
-        if (cost > 0.0000001) {
-            good_grasps_count++;
-        }
-
-        if ((i % 1000) == 0) {
-            std::cout << i << "   " << cost << std::endl;
-        }
-    }
-
-    std::cout << "best: " << cost_max << "   good_grasps_count " << good_grasps_count << std::endl;
-
-//    return 0;
-    double temperature = 100.0;
-
-    // visualisation
-    for (int i = 0; i < 100000; i++) {
-
-        // Position its base in a reasonable way
-        KDLToEigenTf(T_W_E_best, tf);
-        bh->getJoint(0)->setTransformFromParentBodyNode(tf);
-        for (std::map<std::string, double>::const_iterator it = q_best.begin(); it != q_best.end(); it++) {
-            dart::dynamics::Joint *j = bh->getJoint( it-> first );
-            j->setPosition( 0, it->second );
-        }
-
-        for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
-            dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
-            const Eigen::Isometry3d &tf = b->getTransform();
-            KDL::Frame T_W_L;
-            EigenTfToKDL(tf, T_W_L);
-            publishTransform(br, T_W_L, b->getName(), "world");
-        }
-
-        int m_id = 0;
-        for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
-            dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
-            if (sk->getName() == bh->getName()) {
-                continue;
-            }
-
-            for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
-                dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
-                const Eigen::Isometry3d &tf = b->getTransform();
-                KDL::Frame T_W_L;
-                EigenTfToKDL(tf, T_W_L);
-                publishTransform(br, T_W_L, b->getName(), "world");
-                for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
-                    dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
-                    if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
-                        std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-                        m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
-                    }
-                }
-            }
-        }
-        markers_pub.publish();
-        ros::spinOnce();
-        loop_rate.sleep();
-        ros::Duration(0.02).sleep();
-        if (!ros::ok()) {
-            break;
-        }
-
-        Eigen::Vector4d qq, qq_res;
-        T_W_E_best.M.GetQuaternion(qq(0), qq(1), qq(2), qq(3));
-
-        Eigen::Vector3d axis;
-        randomUnitSphere(axis);
-        std::normal_distribution<> d = std::normal_distribution<>(0, 0.5/180.0*PI);
-        KDL::Rotation rot( T_W_E_best.M * KDL::Rotation::Rot(KDL::Vector(axis(0), axis(1), axis(2)), d(gen)) );
-        d = std::normal_distribution<>(0, 0.002);
-        KDL::Frame T_E_G(KDL::Vector(0,0,0.15));
-        KDL::Frame T_W_G_best = T_W_E_best * T_E_G;
-        KDL::Frame T_W_G_new( rot, T_W_G_best.p + KDL::Vector(d(gen), d(gen), d(gen)));
-        KDL::Frame T_W_E_new = T_W_G_new * T_E_G.Inverse();
-
-        d = std::normal_distribution<>(0, 2.0/180.0*PI);
-        std::map<std::string, double> q_new( q_best );
-        double angleDiffF1 = d(gen);
-        double angleDiffF2 = d(gen);
-        double angleDiffF3 = d(gen);
-        q_new["right_HandFingerOneKnuckleTwoJoint"] -= angleDiffF1;
-        q_new["right_HandFingerTwoKnuckleTwoJoint"] -= angleDiffF2;
-        q_new["right_HandFingerThreeKnuckleTwoJoint"] -= angleDiffF3;
-        q_new["right_HandFingerOneKnuckleThreeJoint"] -= angleDiffF1*0.333333;
-        q_new["right_HandFingerTwoKnuckleThreeJoint"] -= angleDiffF2*0.333333;
-        q_new["right_HandFingerThreeKnuckleThreeJoint"] -= angleDiffF3*0.333333;
-        for (std::map<std::string, double>::iterator it = q_new.begin(); it != q_new.end(); it++) {
-            dart::dynamics::Joint *j = bh->getJoint( it-> first );
-            it->second = std::max( j->getPositionLowerLimit( 0 ), it->second );
-            it->second = std::min( j->getPositionUpperLimit( 0 ), it->second );
-        }
-
-        double cost = hm->getDensity(q_new);
-        for (std::vector<std::string >::const_iterator lit = cm->getLinkNamesCol().begin(); lit != cm->getLinkNamesCol().end(); lit++) {
-            if (cost < 0.0000001) {
-                cost = 0.0;
-                break;
-            }
-            KDL::Frame T_E_L;
-            getFK(bh, q_new, "right_HandPalmLink", (*lit), T_E_L);
-            KDL::Frame T_O_L( T_W_O.Inverse() * T_W_E_new * T_E_L );
-            KDL::Frame T_L_C;
-            cm->getT_L_C((*lit), T_L_C);
-            cost *= qd->getQueryDensity((*lit), T_O_L * T_L_C);
-        }
-        double trPr = getTransitionProbability(cost_max, cost, temperature);
-        std::cout << "temp: " << temperature << "   cost: " << cost_max << "   cost_new: " << cost << "   trPr: " << trPr << std::endl;
-
-        if (randomUniform(0.0, 1.0) < trPr) {
-            T_W_E_best = T_W_E_new;
-            cost_max = cost;
-            q_best = q_new;
-        }
-        temperature -= 0.02;
-
-    }
+    writeToXml(argv[3], cm, hm);
 
     return 0;
 }
