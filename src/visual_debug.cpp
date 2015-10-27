@@ -161,7 +161,11 @@ int visualiseRejectionSamplingVonMisesFisher4(MarkerPublisher &markers_pub, int 
 }
 
 int visualiseQueryDensityParticles(MarkerPublisher &markers_pub, int m_id, const std::vector<QueryDensity::QueryDensityElement > &qd_vec, const std::string &frame_id) {
+    std::cout << "qd_vec: " << qd_vec.size() << std::endl;
     for (std::vector<QueryDensity::QueryDensityElement >::const_iterator it = qd_vec.begin(); it != qd_vec.end(); it++) {
+        if (rand() % 100 != 0) {
+            continue;
+        }
         // visualisation
         KDL::Frame fr(KDL::Rotation::Quaternion(it->q_(0), it->q_(1), it->q_(2), it->q_(3)), KDL::Vector(it->p_(0), it->p_(1), it->p_(2)));
         double w = it->weight_ * 2000.0;
@@ -194,13 +198,14 @@ int visualiseQueryDensityParticles(MarkerPublisher &markers_pub, int m_id, const
 
 int visualiseQueryDensityFunction(tf::TransformBroadcaster &br, MarkerPublisher &markers_pub, int m_id, const QueryDensity &qd, const std::string &link_name, const KDL::Frame &T_L_C, const KDL::Frame &T_W_O, const std::string &frame_id) {
     // visualisation of query density
-    KDL::Rotation rot(KDL::Rotation::RotZ(-(-90.0+30.0)/180.0*PI));
+//    KDL::Rotation rot(KDL::Rotation::RotZ(-(-90.0+30.0)/180.0*PI));
+    KDL::Rotation rot(KDL::Rotation::RotY((-90.0+0.0)/180.0*PI) * KDL::Rotation::RotZ((30.0+0.0)/180.0*PI));
     double grid_size = 0.004;
     std::list<std::pair<KDL::Frame, double> > test_list;
     double max_cost = 0.0;
-    for (double x = -0.12; x < 0.12; x += grid_size) {
+    for (double x = -0.10; x < 0.10; x += grid_size) {
         for (double y = -0.12; y < 0.12; y += grid_size) {
-            KDL::Frame T_O_L = KDL::Frame(rot, KDL::Vector(x, y, 0.0));
+            KDL::Frame T_O_L = KDL::Frame(rot, KDL::Vector(0, y, x));
             double cost = qd.getQueryDensity(link_name, T_O_L * T_L_C);
             test_list.push_back(std::make_pair(T_O_L, cost));
             if (cost > max_cost) {

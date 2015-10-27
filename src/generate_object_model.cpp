@@ -240,8 +240,8 @@ int main(int argc, char** argv) {
         }
     }
 
-    const double sigma_p = 0.005;
-    const double sigma_q = 15.0/180.0*PI;//100.0;
+    const double sigma_p = 0.0025;
+    const double sigma_q = 5.0/180.0*PI;//100.0;
     const double sigma_r = 0.05;
 
     int m_id = 101;
@@ -254,7 +254,9 @@ int main(int argc, char** argv) {
     om->setSamplerParameters(sigma_p, sigma_q, sigma_r);
 
     for (int pidx = 0; pidx < point_clouds_map[ob_name]->points.size(); pidx++) {
-        if (point_pc_clouds_map[ob_name]->points[pidx].pc1 > 1.1 * point_pc_clouds_map[ob_name]->points[pidx].pc2) {
+        om->addPointFeature((*features_map[ob_name])[pidx], point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
+
+/*        if (point_pc_clouds_map[ob_name]->points[pidx].pc1 > 1.1 * point_pc_clouds_map[ob_name]->points[pidx].pc2) {
             // e.g. pc1=1, pc2=0
             // edge
             om->addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(PI)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
@@ -265,7 +267,10 @@ int main(int argc, char** argv) {
                 om->addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(angle)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
             }
         }
+*/
     }
+
+    om->randomizeSurface();
 
     std::cout << "om.getPointFeatures().size(): " << om->getPointFeatures().size() << std::endl;
 

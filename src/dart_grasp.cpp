@@ -641,6 +641,7 @@ int main(int argc, char** argv) {
     const double sigma_p = 0.005;
     const double sigma_q = 15.0/180.0*PI;//100.0;
     const double sigma_r = 0.1;//05;
+    double sigma_c = 5.0/180.0*PI;
 
     int m_id = 101;
 
@@ -697,7 +698,7 @@ int main(int argc, char** argv) {
     joint_q_map_before["right_HandFingerTwoKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
     joint_q_map_before["right_HandFingerThreeKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
 
-    hm->generateModel(joint_q_map_before, joint_q_map, 1.0, 30, 0.05);
+    hm->generateModel(joint_q_map_before, joint_q_map, 1.0, 10, sigma_c);
 
     writeToXml(argv[3], cm, hm);
 

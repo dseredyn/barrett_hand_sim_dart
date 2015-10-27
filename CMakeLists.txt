@@ -9,7 +9,7 @@ ADD_DEFINITIONS(
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
 find_package(catkin REQUIRED COMPONENTS
-  pcl_conversions pcl_ros rtt_ros rtt_rosclock std_msgs tf eigen_conversions cmake_modules planer_utils collision_convex_model
+  pcl_conversions pcl_ros rtt_ros rtt_rosclock std_msgs tf eigen_conversions cmake_modules planer_utils kin_dyn_model collision_convex_model
   )
 
 find_package(Eigen REQUIRED)

@@ -131,6 +131,7 @@ static const double PI(3.141592653589793);
             link_models_map_[link_name].T_L_C_ = KDL::Frame(col_pt / sum_weight);
             for (int fidx = 0; fidx < link_models_map_[link_name].features_.size(); fidx++) {
                 link_models_map_[link_name].features_[fidx].T_C_F = link_models_map_[link_name].T_L_C_.Inverse() * T_L_F_vec[fidx];
+                link_models_map_[link_name].features_[fidx].weight /= sum_weight;
             }
         }
     }
