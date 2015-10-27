@@ -139,7 +139,6 @@ static const double PI(3.141592653589793);
         sigma_p_ = sigma_p;
         sigma_q_ = sigma_q;
         sigma_r_ = sigma_r;
-        Cp_ = misesFisherKernelConstant(sigma_q_, 4);
 
         p_dist_max_ = 10000000.0;
         double f_max = uniVariateIsotropicGaussianKernel(0.0, 0.0, sigma_p_);
@@ -162,6 +161,7 @@ static const double PI(3.141592653589793);
                 break;
             }
         }
+
     }
 
     double CollisionModel::getMarginalDensityForR(const std::string &link_name, const Eigen::Vector2d &r) const {
@@ -180,133 +180,6 @@ static const double PI(3.141592653589793);
         }
         return sum;
     }
-/*
-    bool CollisionModel::sampleForR(int seed, const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q) const {
-        std::map<std::string, LinkCollisionModel >::const_iterator it = link_models_map_.find( link_name );
-        if (it == link_models_map_.end()) {
-            return false;
-        }
-        const std::vector<Feature > &features = it->second.features_;
-        std::mt19937 gen_(seed);
-
-        const int n_points = features.size();
-        std::vector<double > weights(n_points, 0.0);
-
-        double result_x, result_y, result_z;
-        Eigen::Vector4d result_q;
-
-        // sample the x coordinate
-        double sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(r(0) - features[pidx].pc1) > r_dist_max_ || std::fabs(r(1) - features[pidx].pc2) > r_dist_max_ || features[pidx].weight < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
-                weights[pidx] = features[pidx].weight * biVariateIsotropicGaussianKernel(r, Eigen::Vector2d(features[pidx].pc1, features[pidx].pc2), sigma_r_);
-            }
-            sum += weights[pidx];
-        }
-
-        double rr = randomUniform(0.0, sum);
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                result_x = features[pidx].T_C_F.p.x();
-                break;
-            }
-        }
-
-        std::normal_distribution<> d = std::normal_distribution<>(result_x, sigma_p_);
-        result_x = d(gen_);
-
-        // sample the y coordinate
-        sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_x - features[pidx].T_C_F.p.x()) > p_dist_max_ || weights[pidx] < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_x, features[pidx].T_C_F.p.x(), sigma_p_);
-            }
-            sum += weights[pidx];
-        }
-
-        rr = randomUniform(0.0, sum);
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                result_y = features[pidx].T_C_F.p.y();
-                break;
-            }
-        }
-
-        d = std::normal_distribution<>(result_y, sigma_p_);
-        result_y = d(gen_);
-
-        // sample the z coordinate
-        sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_y - features[pidx].T_C_F.p.y()) > p_dist_max_ || weights[pidx] < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_y, features[pidx].T_C_F.p.y(), sigma_p_);
-            }
-            sum += weights[pidx];
-        }
-
-        rr = randomUniform(0.0, sum);
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                result_z = features[pidx].T_C_F.p.z();
-                break;
-            }
-        }
-
-        d = std::normal_distribution<>(result_z, sigma_p_);
-        result_z = d(gen_);
-
-        // sample the orientation
-        sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_z - features[pidx].T_C_F.p.z()) > p_dist_max_ || weights[pidx] < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_z, features[pidx].T_C_F.p.z(), sigma_p_);
-            }
-            sum += weights[pidx];
-        }
-
-        rr = randomUniform(0.0, sum);
-        Eigen::Vector4d mean_q;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                features[pidx].T_C_F.M.GetQuaternion(mean_q(0), mean_q(1), mean_q(2), mean_q(3));                
-                break;
-            }
-        }
-
-        double pdf_mean = misesFisherKernel(mean_q, mean_q, sigma_q_, Cp_);
-
-        // TODO
-        result_q = mean_q;
-        int iterations = 1;
-//        int iterations = vonMisesFisherSample(mean_q, pdf_mean, sigma_q_, Cp_, result_q);
-        if (iterations < 0) {
-            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
-        }
-
-        p(0) = result_x;
-        p(1) = result_y;
-        p(2) = result_z;
-        q = result_q;
-
-        return true;
-    }
-*/
 
     bool CollisionModel::sampleForR(int seed, const std::string &link_name, const Eigen::Vector2d &r, Eigen::Vector3d &p, Eigen::Vector4d &q) const {
         std::map<std::string, LinkCollisionModel >::const_iterator it = link_models_map_.find( link_name );
@@ -357,13 +230,9 @@ static const double PI(3.141592653589793);
         d = std::normal_distribution<>(result_z, sigma_p_);
         result_z = d(gen_);
 
-        double pdf_mean = misesFisherKernel(mean_q, mean_q, sigma_q_, Cp_);
-        // TODO
-        result_q = mean_q;
-        int iterations = 1;
-//        int iterations = vonMisesFisherSample(mean_q, pdf_mean, sigma_q_, Cp_, result_q);
+        int iterations = orientationNormalSample(mean_q, sigma_q_, result_q);
         if (iterations < 0) {
-            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
+            std::cout << "ERROR: orientationNormalSample" << std::endl;
         }
 
         p(0) = result_x;
@@ -548,7 +417,6 @@ static const double PI(3.141592653589793);
     void QueryDensity::setSamplerParameters(double sigma_p, double sigma_q) {
         sigma_p_ = sigma_p;
         sigma_q_ = sigma_q;
-        Cp_ = misesFisherKernelConstant(sigma_q_, 4);
 
         p_dist_max_ = 10000000.0;
         double f_max = uniVariateIsotropicGaussianKernel(0.0, 0.0, sigma_p_);
@@ -578,9 +446,10 @@ static const double PI(3.141592653589793);
         std::vector<double > weights(n_points, 0.0);
 
         double result_x, result_y, result_z;
-        Eigen::Vector4d result_q;
+        Eigen::Vector4d result_q, mean_q;
 
-        // sample the x coordinate
+        QueryDensityElement random_elem;
+
         double sum = 0.0;
         for (int pidx = 0; pidx < n_points; pidx++) {
             weights[pidx] = qd[pidx].weight_;
@@ -591,88 +460,26 @@ static const double PI(3.141592653589793);
         for (int pidx = 0; pidx < n_points; pidx++) {
             rr -= weights[pidx];
             if (rr <= 0.0) {
-                result_x = qd[pidx].p_(0);
+                random_elem = qd[pidx];
                 break;
             }
         }
+
+        result_x = random_elem.p_(0);
+        result_y = random_elem.p_(1);
+        result_z = random_elem.p_(2);
+        mean_q = random_elem.q_;
 
         std::normal_distribution<> d = std::normal_distribution<>(result_x, sigma_p_);
         result_x = d(gen_);
-
-        // sample the y coordinate
-        sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_x - qd[pidx].p_(0)) > p_dist_max_ || weights[pidx] < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_x, qd[pidx].p_(0), sigma_p_);
-            }
-            sum += weights[pidx];
-        }
-
-        rr = randomUniform(0.0, sum);
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                result_y = qd[pidx].p_(1);
-                break;
-            }
-        }
-
         d = std::normal_distribution<>(result_y, sigma_p_);
         result_y = d(gen_);
-
-        // sample the z coordinate
-        sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_y - qd[pidx].p_(1)) > p_dist_max_ || weights[pidx] < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_y, qd[pidx].p_(1), sigma_p_);
-            }
-            sum += weights[pidx];
-        }
-
-        rr = randomUniform(0.0, sum);
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                result_z = qd[pidx].p_(2);
-                break;
-            }
-        }
-
         d = std::normal_distribution<>(result_z, sigma_p_);
         result_z = d(gen_);
 
-        // sample the orientation
-        sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_z - qd[pidx].p_(2)) > p_dist_max_ || weights[pidx] < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_z, qd[pidx].p_(2), sigma_p_);
-            }
-            sum += weights[pidx];
-        }
-
-        rr = randomUniform(0.0, sum);
-        Eigen::Vector4d mean_q;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                mean_q = qd[pidx].q_;
-                break;
-            }
-        }
-
-        double pdf_mean = misesFisherKernel(mean_q, mean_q, sigma_q_, Cp_);
-        int iterations = vonMisesFisherSample(mean_q, pdf_mean, sigma_q_, Cp_, result_q);
+        int iterations = orientationNormalSample(mean_q, sigma_q_, result_q);
         if (iterations < 0) {
-            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
+            std::cout << "ERROR: orientationNormalSample" << std::endl;
         }
 
         p(0) = result_x;
@@ -712,7 +519,7 @@ static const double PI(3.141592653589793);
                     continue;
                 }
                 else {
-                    Q *= misesFisherKernel(q, qd[pidx].q_, sigma_q_, Cp_);
+                    Q *= orientationNormalKernel(q, qd[pidx].q_, sigma_q_);
                     sum += Q;
                 }
             }
@@ -845,7 +652,7 @@ static const double PI(3.141592653589793);
     }
 
     bool QueryDensity::operator== (const QueryDensity &qd) const {
-        if (sigma_p_ != qd.sigma_p_ || sigma_q_ != qd.sigma_q_ || p_dist_max_ != qd.p_dist_max_ || Cp_ != qd.Cp_) {
+        if (sigma_p_ != qd.sigma_p_ || sigma_q_ != qd.sigma_q_ || p_dist_max_ != qd.p_dist_max_) {// || Cp_ != qd.Cp_) {
             return false;
         }
 
@@ -898,7 +705,6 @@ static const double PI(3.141592653589793);
         sigma_p_ = sigma_p;
         sigma_q_ = sigma_q;
         sigma_r_ = sigma_r;
-        Cp_ = misesFisherKernelConstant(sigma_q_, 4);
 
         p_dist_max_ = 10000000.0;
         double f_max = uniVariateIsotropicGaussianKernel(0.0, 0.0, sigma_p_);
@@ -922,167 +728,6 @@ static const double PI(3.141592653589793);
             }
         }
     }
-/*
-    int ObjectModel::sample(int seed, Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r) const {
-        const int n_points = fv_.size();
-        std::vector<double > weights(n_points, 1.0 / static_cast<double >(n_points));
-
-        std::mt19937 gen_(seed);
-
-        double sum = 1.0;
-
-        // sample the x coordinate
-        double rr = randomUniform(0.0, sum);
-        double result_x, result_y, result_z;
-        Eigen::Vector4d result_q;
-        double result_pc1, result_pc2;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                result_x = fv_[pidx].T_O_F_.p.x();
-                break;
-            }
-        }
-
-        std::normal_distribution<> d(result_x, sigma_p_);
-        result_x = d(gen_);
-
-        // sample the y coordinate
-        sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_x - fv_[pidx].T_O_F_.p.x()) > p_dist_max_ || weights[pidx] < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_x, fv_[pidx].T_O_F_.p.x(), sigma_p_);
-            }
-            sum += weights[pidx];
-        }
-
-        rr = randomUniform(0.0, sum);
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                result_y = fv_[pidx].T_O_F_.p.y();
-                break;
-            }
-        }
-
-        d = std::normal_distribution<>(result_y, sigma_p_);
-        result_y = d(gen_);
-
-        // sample the z coordinate
-        sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_y - fv_[pidx].T_O_F_.p.y()) > p_dist_max_ || weights[pidx] < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_y, fv_[pidx].T_O_F_.p.y(), sigma_p_);
-            }
-            sum += weights[pidx];
-        }
-
-        rr = randomUniform(0.0, sum);
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                result_z = fv_[pidx].T_O_F_.p.z();
-                break;
-            }
-        }
-
-        d = std::normal_distribution<>(result_z, sigma_p_);
-        result_z = d(gen_);
-
-        // sample the orientation
-        sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_z - fv_[pidx].T_O_F_.p.z()) > p_dist_max_ || weights[pidx] < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_z, fv_[pidx].T_O_F_.p.z(), sigma_p_);
-            }
-            sum += weights[pidx];
-        }
-
-        rr = randomUniform(0.0, sum);
-        Eigen::Vector4d mean_q;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                fv_[pidx].T_O_F_.M.GetQuaternion(mean_q(0), mean_q(1), mean_q(2), mean_q(3));                
-                break;
-            }
-        }
-
-        double pdf_mean = misesFisherKernel(mean_q, mean_q, sigma_q_, Cp_);
-        int iterations = vonMisesFisherSample(mean_q, pdf_mean, sigma_q_, Cp_, result_q);
-        if (iterations < 0) {
-            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
-        }
-
-        // sample the pc1 feature
-        sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            if (weights[pidx] < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
-                Eigen::Vector4d q;
-                fv_[pidx].T_O_F_.M.GetQuaternion(q(0), q(1), q(2), q(3));
-                weights[pidx] *= misesFisherKernel(result_q, q, sigma_q_, Cp_);
-            }
-            sum += weights[pidx];
-        }
-
-        rr = randomUniform(0.0, sum);
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                result_pc1 = fv_[pidx].pc1_;
-                break;
-            }
-        }
-
-        d = std::normal_distribution<>(result_pc1, sigma_r_);
-        result_pc1 = d(gen_);
-
-        // sample the pc2 feature
-        sum = 0.0;
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(result_pc1 - fv_[pidx].pc1_) > r_dist_max_ || weights[pidx] < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
-                weights[pidx] *= uniVariateIsotropicGaussianKernel(result_pc1, fv_[pidx].pc1_, sigma_r_);
-            }
-            sum += weights[pidx];
-        }
-
-        rr = randomUniform(0.0, sum);
-        for (int pidx = 0; pidx < n_points; pidx++) {
-            rr -= weights[pidx];
-            if (rr <= 0.0) {
-                result_pc2 = fv_[pidx].pc2_;
-                break;
-            }
-        }
-
-        d = std::normal_distribution<>(result_pc2, sigma_r_);
-        result_pc2 = d(gen_);
-
-        p(0) = result_x;
-        p(1) = result_y;
-        p(2) = result_z;
-        q = result_q;
-        r(0) = result_pc1;
-        r(1) = result_pc2;
-
-        return iterations;
-    }
-*/
 
     int ObjectModel::sample(int seed, Eigen::Vector3d &p, Eigen::Vector4d &q, Eigen::Vector2d &r) const {
         const int n_points = fv_.size();
@@ -1107,13 +752,10 @@ static const double PI(3.141592653589793);
         result_y = d(gen_);
         d = std::normal_distribution<>(result_z, sigma_p_);
         result_z = d(gen_);
-        double pdf_mean = misesFisherKernel(mean_q, mean_q, sigma_q_, Cp_);
-        // TODO
-        result_q = mean_q;
-        int iterations = 1;
-//        int iterations = vonMisesFisherSample(mean_q, pdf_mean, sigma_q_, Cp_, result_q);
+
+        int iterations = orientationNormalSample(mean_q, sigma_q_, result_q);
         if (iterations < 0) {
-            std::cout << "ERROR: vonMisesFisherSample" << std::endl;
+            std::cout << "ERROR: orientationNormalSample" << std::endl;
         }
         d = std::normal_distribution<>(result_pc1, sigma_r_);
         result_pc1 = d(gen_);
@@ -1484,6 +1126,8 @@ double HandConfigurationModel::getDensity(const std::map<std::string, double>& q
         }
         return elementHCM;
     }
+
+/************************************************************************************************************************************************************/
 
 void writeToXml(const std::string &filename, const boost::shared_ptr<CollisionModel > &cm, const boost::shared_ptr<HandConfigurationModel > &hcm) {
         TiXmlDocument doc;

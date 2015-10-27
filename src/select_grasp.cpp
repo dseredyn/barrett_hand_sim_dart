@@ -329,7 +329,7 @@ int main(int argc, char** argv) {
         loop_rate.sleep();
         ros::Duration(1.0).sleep();
     return 0;
-*/
+//*/
     for (int i = 0; i < 100000; i++) {
 
         // Position its base in a reasonable way
@@ -349,29 +349,6 @@ int main(int argc, char** argv) {
             publishTransform(br, T_W_L, b->getName(), "world");
         }
 
-/*
-        for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
-            dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
-            if (sk->getName() == bh->getName()) {
-                continue;
-            }
-
-            for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
-                dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
-                const Eigen::Isometry3d &tf = b->getTransform();
-                KDL::Frame T_W_L;
-                EigenTfToKDL(tf, T_W_L);
-                publishTransform(br, T_W_L, b->getName(), "world");
-                for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
-                    dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
-                    if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
-                        std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-                        m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
-                    }
-                }
-            }
-        }
-*/
         markers_pub.publish();
         ros::spinOnce();
         loop_rate.sleep();
@@ -385,7 +362,7 @@ int main(int argc, char** argv) {
 
         Eigen::Vector3d axis;
         randomUnitSphere(axis);
-        std::normal_distribution<> d = std::normal_distribution<>(0, 0.5/180.0*PI);
+        std::normal_distribution<> d = std::normal_distribution<>(0, 2.0/180.0*PI);
         KDL::Rotation rot( T_W_E_best.M * KDL::Rotation::Rot(KDL::Vector(axis(0), axis(1), axis(2)), d(gen)) );
         d = std::normal_distribution<>(0, 0.002);
         KDL::Frame T_E_G(KDL::Vector(0,0,0.15));

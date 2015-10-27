@@ -117,7 +117,7 @@ void generateQueryDensity(int seed, const std::string &link_name, const boost::s
 }
 
 int main(int argc, char** argv) {
-
+/*
     Eigen::Vector4d mean, x;
     KDL::Rotation rot;
     rot.GetQuaternion(mean(0), mean(1), mean(2), mean(3));
@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
         std::cout << (angle / PI * 180.0) << "   " << misesFisherKernel(x, mean, sigma, Cp) << std::endl;
     }
     return 0;
-
+*/
     if (argc != 4) {
         std::cout << "usage:" << std::endl;
         std::cout << argv[0] << " object_model collision_model output_file" << std::endl;
@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
     srand ( time(NULL) );
 
     const double sigma_p = 0.005;
-    const double sigma_q = 100.0;
+    const double sigma_q = 15.0/180.0*PI;//100.0;
 
     int m_id = 101;
 

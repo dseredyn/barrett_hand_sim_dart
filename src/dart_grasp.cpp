@@ -639,7 +639,7 @@ int main(int argc, char** argv) {
     }
 
     const double sigma_p = 0.005;
-    const double sigma_q = 100.0;
+    const double sigma_q = 15.0/180.0*PI;//100.0;
     const double sigma_r = 0.1;//05;
 
     int m_id = 101;

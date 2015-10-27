@@ -68,7 +68,7 @@ public:
 protected:
     std::vector<Feature > fv_;
     double p_dist_max_, r_dist_max_;
-    double sigma_p_, sigma_q_, sigma_r_, Cp_;
+    double sigma_p_, sigma_q_, sigma_r_;
 
 public:
     std::string package_name_;
@@ -92,7 +92,7 @@ public:
 class QueryDensity {
 protected:
     double sigma_p_, sigma_q_;
-    double p_dist_max_, Cp_;
+    double p_dist_max_;
 
 public:
     class QueryDensityElement {
@@ -148,7 +148,7 @@ protected:
     };
 
     double sigma_p_, sigma_q_, sigma_r_;
-    double p_dist_max_, r_dist_max_, Cp_;
+    double p_dist_max_, r_dist_max_;
     std::map<std::string, LinkCollisionModel > link_models_map_;
     std::vector<Feature > empty_f_vec_;
     std::vector<std::string > col_link_names_;
