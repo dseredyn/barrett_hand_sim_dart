@@ -38,6 +38,7 @@
 #include <string>
 #include <stdlib.h>
 #include <stdio.h>
+#include <cstdlib>
 
 #include "Eigen/Dense"
 
@@ -66,9 +67,9 @@
 int main(int argc, char** argv) {
     const double PI(3.141592653589793);
 
-    if (argc != 4) {
+    if (argc != 3) {
         std::cout << "usage:" << std::endl;
-        std::cout << "package_scene path_scene output" << std::endl;
+        std::cout << "package_scene path_scene" << std::endl;
         return 0;
     }
     ros::init(argc, argv, "dart_test");
@@ -87,6 +88,10 @@ int main(int argc, char** argv) {
 
     std::string package_path_barrett = ros::package::getPath("barrett_hand_defs");
     std::string package_path = ros::package::getPath(package_name);
+
+    // generate the object model
+    // barrett_hand_sim_dart /objects/jar.urdf grasp_models/om.jar.xml")
+    std::system(std::string("rosrun barrett_hand_sim_dart barrett_hand_sim_dart_generate_object_model") + );
 
     // Load the Skeleton from a file
     dart::utils::DartLoader loader;
@@ -405,7 +410,7 @@ int main(int argc, char** argv) {
 
     hm->generateModel(joint_q_map_before, joint_q_map, 1.0, 10, sigma_c);
 
-    writeToXml(argv[3], cm, hm);
+//    writeToXml(argv[3], cm, hm);
 
     return 0;
 }
