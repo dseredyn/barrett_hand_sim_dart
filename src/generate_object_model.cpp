@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
 
     dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(package_path + path_urdf) );
 //    dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(path_urdf) );
-    KDLToEigenTf(KDL::Frame( KDL::Vector(0.0, 0.0, 0.07) ), tf);
+    KDLToEigenTf(KDL::Frame( KDL::Vector(0.0, 0.0, 0.0) ), tf);
     domino->getJoint(0)->setTransformFromParentBodyNode(tf);
 
     dart::simulation::World* world = new dart::simulation::World();
@@ -173,7 +173,7 @@ int main(int argc, char** argv) {
                     int midx = 0;
 //                    std::cout << "v: " << sc->mMeshes[midx]->mNumVertices << "   f: " << sc->mMeshes[midx]->mNumFaces << std::endl;
                     pcl::PointCloud<pcl::PointNormal>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointNormal>);
-                    uniform_sampling(sc->mMeshes[midx], 100000, *cloud_1);
+                    uniform_sampling(sc->mMeshes[midx], 1000000, *cloud_1);
                     for (int pidx = 0; pidx < cloud_1->points.size(); pidx++) {
                         KDL::Vector pt_L = T_L_S * KDL::Vector(cloud_1->points[pidx].x, cloud_1->points[pidx].y, cloud_1->points[pidx].z);
                         cloud_1->points[pidx].x = pt_L.x();
@@ -186,7 +186,7 @@ int main(int argc, char** argv) {
                     grid_->setDownsampleAllData(true);
                     grid_->setSaveLeafLayout(true);
                     grid_->setInputCloud(cloud_1);
-                    grid_->setLeafSize(0.005, 0.005, 0.005);
+                    grid_->setLeafSize(0.007, 0.007, 0.007);
                     grid_->filter (*res);
                     point_clouds_map[body_name] = res;
                     frames_map[body_name] = T_W_L;
@@ -207,7 +207,7 @@ int main(int argc, char** argv) {
 
                     // Use the same KdTree from the normal estimation
                     principalCurvaturesEstimation.setSearchMethod (tree);
-                    principalCurvaturesEstimation.setRadiusSearch(0.008);
+                    principalCurvaturesEstimation.setRadiusSearch(0.02);
 
                     // Actually compute the principal curvatures
                     pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures (new pcl::PointCloud<pcl::PrincipalCurvatures> ());
@@ -240,9 +240,9 @@ int main(int argc, char** argv) {
         }
     }
 
-    const double sigma_p = 0.0025;
-    const double sigma_q = 5.0/180.0*PI;//100.0;
-    const double sigma_r = 0.05;
+    const double sigma_p = 0.01;//025;
+    const double sigma_q = 10.0/180.0*PI;//100.0;
+    const double sigma_r = 0.2;//05;
 
     int m_id = 101;
 
@@ -271,6 +271,9 @@ int main(int argc, char** argv) {
     }
 
     om->randomizeSurface();
+
+
+    m_id = visualiseAllFeatures(markers_pub, m_id, om->getFeaturesData(), "world");
 
     std::cout << "om.getPointFeatures().size(): " << om->getPointFeatures().size() << std::endl;
 

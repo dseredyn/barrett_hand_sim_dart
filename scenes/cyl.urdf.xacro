@@ -22,7 +22,7 @@
 
   <!-- the gripper -->
   <joint name="map_gripper_joint" type="fixed">
-    <origin xyz="0.0 0.0 0.22" rpy="${M_PI} 0 0"/>
+    <origin xyz="0.0 0.0 0.195" rpy="${M_PI} 0 0"/>
     <parent link="map"/>
     <child link="gripper_mount_link"/>
   </joint>
@@ -62,38 +62,38 @@
 
   <!-- the graspable object -->
   <joint name="map_graspable_joint" type="floating">
-    <origin xyz="0.0 0.0 0.07" rpy="0 0 0"/>
+    <origin xyz="0.0 0.0 0.05" rpy="0 ${M_PI/2} 0"/>
     <parent link="map"/>
     <child link="graspable"/>
   </joint>
   <link name="graspable">
     <inertial>
       <origin xyz="0.0 0.0 0.0"/>
-      <mass value="0.63352875"/>
+      <mass value="0.0063352875"/>
       <inertia ixx="0.00102103" ixy="0.00000775" ixz="-0.00001230" iyy="0.00080944" iyz="-0.00014417" izz="0.00068788"/>
     </inertial>
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://barrett_hand_sim_dart/meshes/cuboid.stl"/>
+        <mesh filename="package://barrett_hand_sim_dart/meshes/cylinder9.stl"/>
       </geometry>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://barrett_hand_sim_dart/meshes/cuboid.stl"/>
+        <mesh filename="package://barrett_hand_sim_dart/meshes/cylinder9.stl"/>
       </geometry>
     </collision>
   </link>
 
   <grasp_specification>
      <init_state joint="right_HandFingerOneKnuckleOneJoint" position="0.01" />
-     <init_state joint="right_HandFingerOneKnuckleTwoJoint" position="0.5" />
-     <init_state joint="right_HandFingerTwoKnuckleTwoJoint" position="0.5" />
-     <init_state joint="right_HandFingerThreeKnuckleTwoJoint" position="0.5" />
+     <init_state joint="right_HandFingerOneKnuckleTwoJoint" position="0.3" />
+     <init_state joint="right_HandFingerTwoKnuckleTwoJoint" position="0.3" />
+     <init_state joint="right_HandFingerThreeKnuckleTwoJoint" position="0.3" />
      <goal_state joint="right_HandFingerOneKnuckleOneJoint" position="0.01" />
-     <goal_state joint="right_HandFingerOneKnuckleTwoJoint" position="1.6" />
-     <goal_state joint="right_HandFingerTwoKnuckleTwoJoint" position="1.6" />
-     <goal_state joint="right_HandFingerThreeKnuckleTwoJoint" position="1.6" />
+     <goal_state joint="right_HandFingerOneKnuckleTwoJoint" position="1.7" />
+     <goal_state joint="right_HandFingerTwoKnuckleTwoJoint" position="1.7" />
+     <goal_state joint="right_HandFingerThreeKnuckleTwoJoint" position="1.7" />
   </grasp_specification>
 </robot>

@@ -79,7 +79,7 @@ double getTransitionProbability(double cost1, double cost2, double temperature) 
         return 1.0;
     }
     
-    return temperature / 100.0 * 0.05;
+    return temperature / 100.0 * 0.01;
 }
 
 void getFK(const dart::dynamics::SkeletonPtr &bh, const std::map<std::string, double> &q_map, const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) {
@@ -181,7 +181,7 @@ public:
                 cm->getT_L_C((*lit), T_L_C);
                 score *= qd->getQueryDensity((*lit), T_O_L * T_L_C);
             }
-            if (score != score || score < 0.00000000001) {
+            if (score != score) {// || score < 0.00000000001) {
                 score = 0.0;
             }
             score_ = score;
@@ -351,8 +351,27 @@ int main(int argc, char** argv) {
 
     return 0;
 */
+
     int m_id = 0;
-/*        ros::Duration(1.0).sleep();
+    ros::Duration(1.0).sleep();
+
+    const std::vector<ObjectModel::Feature > &om_f_vec = om->getFeaturesData();
+    std::cout << "om_f_vec: " << om_f_vec.size() << std::endl;
+
+    // visualisation
+
+    // publish grasped object model
+    publishTransform(br, T_W_O, "graspable", "world");
+    for (int i = 0; i < om_f_vec.size(); i++) {
+        if (rand() % 4 == 0) {
+            m_id = markers_pub.addSinglePointMarkerCube(m_id, om_f_vec[i].T_O_F_.p, 1, 1, 1, 1, 0.001, 0.001, 0.001, "graspable");
+        }
+    }
+
+    markers_pub.publish();
+    ros::spinOnce();
+
+/*
     publishTransform(br, T_W_O, "graspable", "world");
 
     m_id = visualiseQueryDensityParticles(markers_pub, m_id, qd->qd_map_["right_HandFingerTwoKnuckleThreeLink"].vec_, "graspable");
@@ -368,9 +387,8 @@ int main(int argc, char** argv) {
 //    int good_grasps_count = 0;
 //    KDL::Frame T_W_E_best;
 //    std::map<std::string, double> q_best;
-    int n_solutions = 4000;
+    int n_solutions = 400;
     std::vector<GraspSolution > solutions;
-    std::vector<GraspSolution > solutions_best;
     for (int  i = 0; i < n_solutions; i++) {
         const std::string &link_name = cm->getRandomLinkNameCol();
         KDL::Frame T_O_L1;
@@ -379,32 +397,12 @@ int main(int argc, char** argv) {
         KDL::Frame T_L1_C;
         cm->getT_L_C(link_name, T_L1_C);
         T_O_L1 = T_O_C1 * T_L1_C.Inverse();
+
+        publishTransform(br, T_W_O * T_O_L1, link_name, "world");
+
         std::map<std::string, double> q_sample;
         hm->sample(gen(), q_sample);
-/*
-        double cost = qd->getQueryDensity(link_name, T_O_L1 * T_L1_C);
-        for (std::vector<std::string >::const_iterator lit = cm->getLinkNamesCol().begin(); lit != cm->getLinkNamesCol().end(); lit++) {
-//            if (cost < 0.0000001) {
-//                cost = 0.0;
-//                break;
-//            }
-            if (link_name == (*lit)) {
-                continue;
-            }
 
-            KDL::Frame T_L2_C;
-            cm->getT_L_C((*lit), T_L2_C);
-            KDL::Frame T_L1_L2;
-
-//            km.calculateFk
-//    int getDofCount() const;
-//    int getJointIndex
-
-            getFK(bh, q_sample, link_name, (*lit), T_L1_L2);
-            KDL::Frame T_O_L2( T_O_L1 * T_L1_L2 );
-            cost *= qd->getQueryDensity((*lit), T_O_L2 * T_L2_C);
-        }
-*/
         // apply joint limits
         for (std::map<std::string, double>::iterator it = q_sample.begin(); it != q_sample.end(); it++) {
             dart::dynamics::Joint *j = bh->getJoint( it-> first );
@@ -421,31 +419,30 @@ int main(int argc, char** argv) {
         sol.evaluate(bh, T_W_O, hm, qd, cm);
         if (sol.score_ != 0.0) {
             solutions.push_back(sol);
-            solutions_best.push_back(sol);
+            std::cout << "found solution: " << sol.score_ << std::endl;
         }
 
         if ((i % 500) == 0) {
-            std::cout << i << std::endl;
+            std::cout << i << "  solutions: " << solutions.size() << std::endl;
         }
 
     }
 
 //    std::cout << "best: " << cost_max << "   good_grasps_count " << good_grasps_count << std::endl;
 
-    const std::vector<ObjectModel::Feature > &om_f_vec = om->getFeaturesData();
-    std::cout << "om_f_vec: " << om_f_vec.size() << std::endl;
+    std::cout << "solutions found: " << solutions.size() << std::endl;
+
+    std::sort(solutions.begin(), solutions.end());
+    std::reverse(solutions.begin(), solutions.end());
+
+    solutions.resize(solutions.size() / 10);
+
+    std::cout << "reduced solutions to: " << solutions.size() << std::endl;
+
+    std::vector<GraspSolution > solutions_best(solutions);
 
     double temperature = 100.0;
 
-    // visualisation
-
-    // publish grasped object model
-    publishTransform(br, T_W_O, "graspable", "world");
-    for (int i = 0; i < om_f_vec.size(); i++) {
-        if (rand() % 4 == 0) {
-            m_id = markers_pub.addSinglePointMarkerCube(m_id, om_f_vec[i].T_O_F_.p, 1, 1, 1, 1, 0.001, 0.001, 0.001, "graspable");
-        }
-    }
 
 /*
     {
@@ -460,7 +457,7 @@ int main(int argc, char** argv) {
         ros::Duration(1.0).sleep();
     return 0;
 //*/
-    int steps = 20;
+    int steps = 40;
     for (int i = 0; i < steps; i++) {
         int good_solutions = 0;
         // simulated annealing step
@@ -516,52 +513,13 @@ int main(int argc, char** argv) {
 
 //        std::sort(solutions.begin(), solutions.end());
 //        std::reverse(solutions.begin(), solutions.end());
-        std::cout << "good_solutions: " << good_solutions << "   " << solutions[0].score_ << "   " << solutions[1].score_ << "   " << solutions[2].score_ << "   " << solutions[3].score_ << std::endl;
+//"   " << solutions[0].score_ << "   " << solutions[1].score_ << "   " << solutions[2].score_ << "   " << solutions[3].score_ << std::endl;
 
         temperature = 100.0 * static_cast<double >(steps - 1 - i) / static_cast<double >(steps - 1);
-
-/*        // publish transforms of the gripper
-        for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
-            dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
-            const Eigen::Isometry3d &tf = b->getTransform();
-            KDL::Frame T_W_L;
-            EigenTfToKDL(tf, T_W_L);
-            publishTransform(br, T_W_L, b->getName(), "world");
-        }
-
-        markers_pub.publish();
-        ros::spinOnce();
-        loop_rate.sleep();
-        ros::Duration(0.02).sleep();
-        if (!ros::ok()) {
-            break;
-        }
-*/
-/*
-        double cost = hm->getDensity(q_new);
-        for (std::vector<std::string >::const_iterator lit = cm->getLinkNamesCol().begin(); lit != cm->getLinkNamesCol().end(); lit++) {
-            if (cost < 0.0000001) {
-                cost = 0.0;
-                break;
-            }
-            KDL::Frame T_E_L;
-            getFK(bh, q_new, "right_HandPalmLink", (*lit), T_E_L);
-            KDL::Frame T_O_L( T_W_O.Inverse() * T_W_E_new * T_E_L );
-            KDL::Frame T_L_C;
-            cm->getT_L_C((*lit), T_L_C);
-            cost *= qd->getQueryDensity((*lit), T_O_L * T_L_C);
-        }
-        double trPr = getTransitionProbability(cost_max, cost, temperature);
-        std::cout << "temp: " << temperature << "   cost: " << cost_max << "   cost_new: " << cost << "   trPr: " << trPr << std::endl;
-
-        if (randomUniform(0.0, 1.0) < trPr) {
-            T_W_E_best = T_W_E_new;
-            cost_max = cost;
-            q_best = q_new;
-        }
-        temperature -= 0.02;
-*/
+        std::cout << "good_solutions: " << good_solutions << std::endl;
     }
+
+
 /*
         // evaluate all solutions
         for (int sidx = 0; sidx < n_solutions; sidx++) {
@@ -586,7 +544,7 @@ int main(int argc, char** argv) {
     solutions = solutions_best;
     std::sort(solutions.begin(), solutions.end());
     std::reverse(solutions.begin(), solutions.end());
-    std::cout << solutions[0].score_ << "   " << solutions[1].score_ << "   " << solutions[2].score_ << "   " << solutions[3].score_ << std::endl;
+//    std::cout << solutions[0].score_ << "   " << solutions[1].score_ << "   " << solutions[2].score_ << "   " << solutions[3].score_ << std::endl;
 
     for (int sidx = 0; sidx < solutions.size(); sidx++) {
         KDLToEigenTf(solutions[sidx].T_W_E_, tf);

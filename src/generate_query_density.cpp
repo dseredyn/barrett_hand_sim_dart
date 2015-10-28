@@ -113,7 +113,7 @@ void generateQueryDensity(int seed, const std::string &link_name, const boost::s
             qd_vec[i].weight_ /= sum_weights;
         }
 
-        std::cout << "generateQueryDensity: total_it: " << qd_vec.size() << "   ori_it: " << ori_iterations << "   om.features: " << om.getFeaturesCount() << std::endl;
+        std::cout << "generateQueryDensity: " << link_name << "  total_it: " << qd_vec.size() << "   ori_it: " << ori_iterations << "   om.features: " << om.getFeaturesCount() << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -141,7 +141,7 @@ int main(int argc, char** argv) {
     }
     srand ( time(NULL) );
 
-    const double sigma_p = 0.005;
+    const double sigma_p = 0.01;//05;
     const double sigma_q = 15.0/180.0*PI;//100.0;
 
     int m_id = 101;

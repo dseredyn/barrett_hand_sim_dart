@@ -174,9 +174,9 @@ static const double PI(3.141592653589793);
 
         double sum = 0.0;
         for (int pidx = 0; pidx < features.size(); pidx++) {
-            if (std::fabs(r(0) - features[pidx].pc1) > r_dist_max_ || std::fabs(r(1) - features[pidx].pc2) > r_dist_max_ || features[pidx].weight < 0.0000001) {
-                continue;
-            }
+//            if (std::fabs(r(0) - features[pidx].pc1) > r_dist_max_ || std::fabs(r(1) - features[pidx].pc2) > r_dist_max_ || features[pidx].weight < 0.0000001) {
+//                continue;
+//            }
             sum += features[pidx].weight * biVariateIsotropicGaussianKernel(r, Eigen::Vector2d(features[pidx].pc1, features[pidx].pc2), sigma_r_);
         }
         return sum;
@@ -199,12 +199,12 @@ static const double PI(3.141592653589793);
         // sample the x coordinate
         double sum = 0.0;
         for (int pidx = 0; pidx < n_points; pidx++) {
-            if (std::fabs(r(0) - features[pidx].pc1) > r_dist_max_ || std::fabs(r(1) - features[pidx].pc2) > r_dist_max_ || features[pidx].weight < 0.0000001) {
-                weights[pidx] = 0.0;
-            }
-            else {
+//            if (std::fabs(r(0) - features[pidx].pc1) > r_dist_max_ || std::fabs(r(1) - features[pidx].pc2) > r_dist_max_ || features[pidx].weight < 0.0000001) {
+//                weights[pidx] = 0.0;
+//            }
+//            else {
                 weights[pidx] = features[pidx].weight * biVariateIsotropicGaussianKernel(r, Eigen::Vector2d(features[pidx].pc1, features[pidx].pc2), sigma_r_);
-            }
+//            }
             sum += weights[pidx];
         }
 
@@ -510,7 +510,10 @@ static const double PI(3.141592653589793);
 
         double sum = 0.0;
         for (int pidx = 0; pidx < n_points; pidx++) {
-            double Q = qd[pidx].weight_;
+            double Q = qd[pidx].weight_ * triVariateIsotropicGaussianKernel(p, qd[pidx].p_, sigma_p_) * orientationNormalKernel(q, qd[pidx].q_, sigma_q_);
+            sum += Q;
+
+/*            double Q = qd[pidx].weight_;
             if (Q < 0.0000001) {
                 continue;
             }
@@ -524,6 +527,7 @@ static const double PI(3.141592653589793);
                     sum += Q;
                 }
             }
+*/
         }
 
         return sum;

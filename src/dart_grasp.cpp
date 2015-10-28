@@ -57,7 +57,7 @@
 #include <pcl/common/pca.h>
 #include <pcl/features/principal_curvatures.h>
 
-//#include "grasp_state.h"
+#include "grasp_specification.h"
 #include "models.h"
 #include "mesh_sampling.h"
 
@@ -212,8 +212,24 @@ public:
     const std::vector<std::string >& getJointNames() const {
         return joint_names_vec_;
     }
+/*
+    bool setPosition(const std::string &joint_name, double pos) {
+        std::map<std::string, Joint >::iterator it = joint_map_.find(joint_name);
+        if (it == joint_map_.end()) {
+            return false;
+        }
+        it->second = pos;
 
-    bool setGoalPosition(const std::string joint_name, double q_des) {
+        for (std::map<std::string, JointMimic >::iterator itm = joint_mimic_map_.begin(); itm != joint_mimic_map_.end(); itm++) {
+            if (itm->second.mimic_joint_name_ == joint_name) {
+                itm->second. = itm->second.mimic_factor_ * pos + itm->second.mimic_offset_;
+            }
+        }
+
+        return true;
+    }
+*/
+    bool setGoalPosition(const std::string &joint_name, double q_des) {
         std::map<std::string, Joint >::iterator it = joint_map_.find(joint_name);
         if (it == joint_map_.end()) {
             std::cout << "ERROR: setGoalPosition joint_map_.find(\"" << joint_name << "\") == joint_map_.end()" << std::endl;
@@ -381,8 +397,8 @@ int main(int argc, char** argv) {
 
     ros::NodeHandle nh_;
 
-    std::string package_name( argv[1] );//"barrett_hand_sim_dart" );
-    std::string scene_urdf( argv[2] );//"/scenes/pinch.urdf" );
+    std::string package_name( argv[1] );
+    std::string scene_urdf( argv[2] );
 
     ros::Rate loop_rate(400);
 
@@ -399,6 +415,8 @@ int main(int argc, char** argv) {
     loader.addPackageDirectory("barrett_hand_defs", package_path_barrett);
     loader.addPackageDirectory("barrett_hand_sim_dart", package_path);
 
+    boost::shared_ptr<GraspSpecification > gspec = GraspSpecification::readFromUrdf(package_path + scene_urdf);
+
     dart::dynamics::SkeletonPtr scene( loader.parseSkeleton(package_path + scene_urdf) );
     scene->enableSelfCollision(true);
 
@@ -406,7 +424,6 @@ int main(int argc, char** argv) {
     Eigen::Isometry3d tf;
     tf = scene->getBodyNode("gripper_mount_link")->getRelativeTransform();
     bh->getJoint(0)->setTransformFromParentBodyNode(tf);
-
 
     dart::simulation::World* world = new dart::simulation::World();
 
@@ -430,18 +447,26 @@ int main(int argc, char** argv) {
     gs.addJointMimic("right_HandFingerTwoKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerTwoKnuckleTwoJoint", 0.333333, 0.0);
     gs.addJointMimic("right_HandFingerThreeKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerThreeKnuckleTwoJoint", 0.333333, 0.0);
 
-    gs.setGoalPosition("right_HandFingerOneKnuckleOneJoint", 0.01);
-    gs.setGoalPosition("right_HandFingerOneKnuckleTwoJoint", 1.4);
-    gs.setGoalPosition("right_HandFingerTwoKnuckleTwoJoint", 1.4);
-    gs.setGoalPosition("right_HandFingerThreeKnuckleTwoJoint", 1.4);
+    gs.setGoalPosition("right_HandFingerOneKnuckleOneJoint", gspec->getGoalPosition("right_HandFingerOneKnuckleOneJoint"));
+    gs.setGoalPosition("right_HandFingerOneKnuckleTwoJoint", gspec->getGoalPosition("right_HandFingerOneKnuckleTwoJoint"));
+    gs.setGoalPosition("right_HandFingerTwoKnuckleTwoJoint", gspec->getGoalPosition("right_HandFingerTwoKnuckleTwoJoint"));
+    gs.setGoalPosition("right_HandFingerThreeKnuckleTwoJoint", gspec->getGoalPosition("right_HandFingerThreeKnuckleTwoJoint"));
 
     std::map<std::string, double> joint_q_map;
-    for (std::vector<std::string >::const_iterator it = gs.getJointNames().begin(); it != gs.getJointNames().end(); it++) {
-        joint_q_map.insert( std::make_pair((*it), 0.0) );
+    joint_q_map["right_HandFingerOneKnuckleOneJoint"] = gspec->getInitPosition("right_HandFingerOneKnuckleOneJoint");
+    joint_q_map["right_HandFingerTwoKnuckleOneJoint"] = gspec->getInitPosition("right_HandFingerOneKnuckleOneJoint");
+    joint_q_map["right_HandFingerOneKnuckleTwoJoint"] = gspec->getInitPosition("right_HandFingerOneKnuckleTwoJoint");
+    joint_q_map["right_HandFingerOneKnuckleThreeJoint"] = 0.333333 * gspec->getInitPosition("right_HandFingerOneKnuckleTwoJoint");
+    joint_q_map["right_HandFingerTwoKnuckleTwoJoint"] = gspec->getInitPosition("right_HandFingerTwoKnuckleTwoJoint");
+    joint_q_map["right_HandFingerTwoKnuckleThreeJoint"] = 0.333333 * gspec->getInitPosition("right_HandFingerTwoKnuckleTwoJoint");
+    joint_q_map["right_HandFingerThreeKnuckleTwoJoint"] = gspec->getInitPosition("right_HandFingerThreeKnuckleTwoJoint");
+    joint_q_map["right_HandFingerThreeKnuckleThreeJoint"] = 0.333333 * gspec->getInitPosition("right_HandFingerThreeKnuckleTwoJoint");
 
+    for (std::vector<std::string >::const_iterator it = gs.getJointNames().begin(); it != gs.getJointNames().end(); it++) {
         dart::dynamics::Joint *j = bh->getJoint((*it));
         j->setActuatorType(dart::dynamics::Joint::FORCE);
      	j->setPositionLimited(true);
+        j->setPosition(0, joint_q_map[(*it)]);
     }
 
     int counter = 0;
@@ -535,6 +560,8 @@ int main(int argc, char** argv) {
 
     const std::string ob_name( "graspable" );
 
+    scene->getBodyNode(ob_name)->setFrictionCoeff(0.001);
+
     // calculate point clouds for all links and for the grasped object
     std::map<std::string, pcl::PointCloud<pcl::PointNormal>::Ptr > point_clouds_map;
     std::map<std::string, pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr > point_pc_clouds_map;
@@ -571,7 +598,7 @@ int main(int argc, char** argv) {
                     int midx = 0;
 //                    std::cout << "v: " << sc->mMeshes[midx]->mNumVertices << "   f: " << sc->mMeshes[midx]->mNumFaces << std::endl;
                     pcl::PointCloud<pcl::PointNormal>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointNormal>);
-                    uniform_sampling(sc->mMeshes[midx], 100000, *cloud_1);
+                    uniform_sampling(sc->mMeshes[midx], 1000000, *cloud_1);
                     for (int pidx = 0; pidx < cloud_1->points.size(); pidx++) {
                         KDL::Vector pt_L = T_L_S * KDL::Vector(cloud_1->points[pidx].x, cloud_1->points[pidx].y, cloud_1->points[pidx].z);
                         cloud_1->points[pidx].x = pt_L.x();
@@ -584,7 +611,7 @@ int main(int argc, char** argv) {
                     grid_->setDownsampleAllData(true);
                     grid_->setSaveLeafLayout(true);
                     grid_->setInputCloud(cloud_1);
-                    grid_->setLeafSize(0.005, 0.005, 0.005);
+                    grid_->setLeafSize(0.004, 0.004, 0.004);
                     grid_->filter (*res);
                     point_clouds_map[body_name] = res;
                     frames_map[body_name] = T_W_L;
@@ -605,7 +632,7 @@ int main(int argc, char** argv) {
 
                     // Use the same KdTree from the normal estimation
                     principalCurvaturesEstimation.setSearchMethod (tree);
-                    principalCurvaturesEstimation.setRadiusSearch(0.008);
+                    principalCurvaturesEstimation.setRadiusSearch(0.02);
 
                     // Actually compute the principal curvatures
                     pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures (new pcl::PointCloud<pcl::PrincipalCurvatures> ());
@@ -638,9 +665,9 @@ int main(int argc, char** argv) {
         }
     }
 
-    const double sigma_p = 0.005;
-    const double sigma_q = 15.0/180.0*PI;//100.0;
-    const double sigma_r = 0.1;//05;
+    const double sigma_p = 0.01;//05;
+    const double sigma_q = 10.0/180.0*PI;//100.0;
+    const double sigma_r = 0.2;//05;
     double sigma_c = 5.0/180.0*PI;
 
     int m_id = 101;
