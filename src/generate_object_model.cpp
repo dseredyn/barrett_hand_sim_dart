@@ -103,7 +103,6 @@ int main(int argc, char** argv) {
     Eigen::Isometry3d tf;
 
     dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(package_path + path_urdf) );
-//    dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(path_urdf) );
     KDLToEigenTf(KDL::Frame( KDL::Vector(0.0, 0.0, 0.0) ), tf);
     domino->getJoint(0)->setTransformFromParentBodyNode(tf);
 
@@ -140,23 +139,21 @@ int main(int argc, char** argv) {
         loop_rate.sleep();
     }
 
+    const std::string ob_name("graspable");
+
     // calculate point clouds for all links and for the grasped object
     std::map<std::string, pcl::PointCloud<pcl::PointNormal>::Ptr > point_clouds_map;
     std::map<std::string, pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr > point_pc_clouds_map;
     std::map<std::string, KDL::Frame > frames_map;
     std::map<std::string, boost::shared_ptr<std::vector<KDL::Frame > > > features_map;
     std::map<std::string, boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > > grids_map;
-    for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
-        dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
-
-        for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
-            dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
-            const Eigen::Isometry3d &tf = b->getTransform();
-            const std::string &body_name = b->getName();
-            KDL::Frame T_W_L;
-            EigenTfToKDL(tf, T_W_L);
-            std::cout << body_name << "   " << b->getNumCollisionShapes() << std::endl;
-            for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
+    dart::dynamics::BodyNode *b = domino->getBodyNode(ob_name);
+    tf = b->getTransform();
+    const std::string &body_name = b->getName();
+    KDL::Frame T_W_L;
+    EigenTfToKDL(tf, T_W_L);
+    std::cout << body_name << "   " << b->getNumCollisionShapes() << std::endl;
+    for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
                 dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
                 if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
                     std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
@@ -236,8 +233,6 @@ int main(int argc, char** argv) {
                         (*features_map[body_name])[pidx] = KDL::Frame( KDL::Rotation(nx, ny, nz), KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) );
                     }
                 }
-            }
-        }
     }
 
     const double sigma_p = 0.01;//025;
@@ -247,7 +242,6 @@ int main(int argc, char** argv) {
     int m_id = 101;
 
     // generate object model
-    const std::string &ob_name = domino->getRootBodyNode()->getName();
     boost::shared_ptr<ObjectModel > om(new ObjectModel);
     om->package_name_ = package_name;
     om->path_urdf_ = path_urdf;

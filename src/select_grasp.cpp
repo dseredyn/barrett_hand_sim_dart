@@ -235,8 +235,6 @@ int main(int argc, char** argv) {
     boost::shared_ptr<HandConfigurationModel > hm = HandConfigurationModel::readFromXml(argv[1]);
     boost::shared_ptr<ObjectModel > om = ObjectModel::readFromXml(argv[1]);
 
-    ros::Publisher joint_state_pub_;
-    joint_state_pub_ = nh_.advertise<sensor_msgs::JointState>("/joint_states", 10);
     tf::TransformBroadcaster br;
     MarkerPublisher markers_pub(nh_);
 
@@ -255,14 +253,9 @@ int main(int argc, char** argv) {
     KDLToEigenTf(KDL::Frame( KDL::Rotation::RotX(180.0/180.0*PI), KDL::Vector(0.0, 0.0, 0.22) ), tf);
     bh->getJoint(0)->setTransformFromParentBodyNode(tf);
 
-//    dart::dynamics::SkeletonPtr domino( loader.parseSkeleton(package_path_sim + om->path_urdf_) );
-//    KDLToEigenTf(KDL::Frame( KDL::Vector(0.0, 0.0, 0.0) ), tf);
-//    domino->getJoint(0)->setTransformFromParentBodyNode(tf);
-
     dart::simulation::World* world = new dart::simulation::World();
 
     world->addSkeleton(bh);
-//    world->addSkeleton(domino);
 
     Eigen::Vector3d grav(0,0,0);
     world->setGravity(grav);
