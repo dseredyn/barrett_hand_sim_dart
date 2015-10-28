@@ -60,6 +60,7 @@
 #include "grasp_specification.h"
 #include "models.h"
 #include "mesh_sampling.h"
+
 #include "gripper_controller.h"
 
 int main(int argc, char** argv) {
