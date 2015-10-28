@@ -27,14 +27,12 @@ include_directories(${catkin_INCLUDE_DIRS} ${Eigen_INCLUDE_DIRS} ${USE_OROCOS_IN
 
 add_executable(barrett_hand_sim_dart_test src/dart_test.cpp)
 add_executable(barrett_hand_sim_dart_grasp src/dart_grasp.cpp src/grasp_specification.cpp src/mesh_sampling.cpp src/models.cpp src/visual_debug.cpp)
-add_executable(barrett_hand_sim_dart_model src/dart_model.cpp src/mesh_sampling.cpp src/grasp_state.cpp src/models.cpp src/visual_debug.cpp)
 add_executable(barrett_hand_sim_dart_generate_object_model src/generate_object_model.cpp src/mesh_sampling.cpp src/models.cpp src/visual_debug.cpp)
 add_executable(barrett_hand_sim_dart_generate_query_density src/generate_query_density.cpp src/mesh_sampling.cpp src/models.cpp src/visual_debug.cpp)
 add_executable(barrett_hand_sim_dart_select_grasp src/select_grasp.cpp src/mesh_sampling.cpp src/models.cpp src/visual_debug.cpp)
 
 target_link_libraries(barrett_hand_sim_dart_test ${catkin_LIBRARIES} ${DART_LIBRARIES})
 target_link_libraries(barrett_hand_sim_dart_grasp ${catkin_LIBRARIES} ${DART_LIBRARIES} ${DARTCore_LIBRARIES} ${ASSIMP_LIBRARIES})
-target_link_libraries(barrett_hand_sim_dart_model ${catkin_LIBRARIES} ${DART_LIBRARIES} ${DARTCore_LIBRARIES} ${ASSIMP_LIBRARIES})
 target_link_libraries(barrett_hand_sim_dart_generate_object_model ${catkin_LIBRARIES} ${DART_LIBRARIES} ${DARTCore_LIBRARIES} ${ASSIMP_LIBRARIES})
 target_link_libraries(barrett_hand_sim_dart_generate_query_density ${catkin_LIBRARIES} ${DART_LIBRARIES} ${DARTCore_LIBRARIES} ${ASSIMP_LIBRARIES})
 target_link_libraries(barrett_hand_sim_dart_select_grasp ${catkin_LIBRARIES} ${DART_LIBRARIES} ${DARTCore_LIBRARIES} ${ASSIMP_LIBRARIES})

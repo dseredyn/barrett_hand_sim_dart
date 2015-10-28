@@ -65,7 +65,6 @@
 
 #include "mesh_sampling.h"
 #include "models.h"
-#include "grasp_state.h"
 #include "visual_debug.h"
 
 const double PI(3.141592653589793);

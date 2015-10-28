@@ -64,7 +64,6 @@
 
 #include "mesh_sampling.h"
 #include "models.h"
-#include "grasp_state.h"
 #include "visual_debug.h"
 
 #include <kin_model/kin_model.h>
