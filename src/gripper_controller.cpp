@@ -168,7 +168,7 @@
             }
             j.q_hist_[j.q_hist_idx_] = q;
             j.q_hist_idx_ = (j.q_hist_idx_ + 1) % j.q_hist_.size();
-//*
+/*
             double mean = 0.0;
             bool overload = true;
             for (int hidx = 0; hidx < j.q_hist_.size(); hidx++) {
@@ -223,7 +223,7 @@
             }
             j.q_hist_[j.q_hist_idx_] = q;
             j.q_hist_idx_ = (j.q_hist_idx_ + 1) % j.q_hist_.size();
-//*
+/*
             if (j2.stopped_) {
                 double mean = 0.0;
                 bool overload = true;

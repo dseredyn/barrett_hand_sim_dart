@@ -39,6 +39,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <cstdlib>
+#include <fstream>
 
 #include "Eigen/Dense"
 
@@ -97,9 +98,7 @@ bool checkCollision(dart::simulation::World* world, const dart::dynamics::Skelet
     return collision;
 }
 
-void publishScene(MarkerPublisher &markers_pub, tf::TransformBroadcaster &br, dart::simulation::World* world, dart::dynamics::SkeletonPtr &bh) {
-    ros::Rate loop_rate(400);
-
+void addScene(MarkerPublisher &markers_pub, tf::TransformBroadcaster &br, dart::simulation::World* world, dart::dynamics::SkeletonPtr &bh) {
     // visualisation
     for (int i = 0; i < 100; i++) {
         for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
@@ -120,6 +119,10 @@ void publishScene(MarkerPublisher &markers_pub, tf::TransformBroadcaster &br, da
             for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
                 dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
                 const Eigen::Isometry3d &tf = b->getTransform();
+                Eigen::Vector3d color(0, 0.8, 0);
+                if (b->getName() == "graspable") {
+                    color = Eigen::Vector3d(0.8, 0, 0);
+                }
                 KDL::Frame T_W_L;
                 EigenTfToKDL(tf, T_W_L);
                 publishTransform(br, T_W_L, b->getName(), "world");
@@ -127,14 +130,11 @@ void publishScene(MarkerPublisher &markers_pub, tf::TransformBroadcaster &br, da
                     dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
                     if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
                         std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-                        m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
+                        m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), color(0), color(1), color(2), 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
                     }
                 }
             }
         }
-        markers_pub.publish();
-        ros::spinOnce();
-        loop_rate.sleep();
     }
 }
 
@@ -240,7 +240,7 @@ public:
                 cm->getT_L_C((*lit), T_L_C);
                 score *= qd->getQueryDensity((*lit), T_O_L * T_L_C);
             }
-            if (score != score) {// || score < 0.00000000001) {
+            if (score != score) {
                 score = 0.0;
             }
             score_ = score;
@@ -255,14 +255,18 @@ public:
 int main(int argc, char** argv) {
     const double PI(3.141592653589793);
 
-    if (argc != 3) {
+    if (argc != 5) {
         std::cout << "usage:" << std::endl;
-        std::cout << "package_scene path_scene" << std::endl;
+        std::cout << "package_scene path_scene grasp_model_file output_file" << std::endl;
         return 0;
     }
 
     std::string package_name( argv[1] );
     std::string scene_urdf( argv[2] );
+    std::string grasp_model_name(argv[3]);
+    std::ofstream outf(argv[4]);
+
+    outf << scene_urdf << "\t" << grasp_model_name << "\t";
 
     // generate the object model
     std::cout << "generating the Object Model..." << std::endl;
@@ -276,7 +280,6 @@ int main(int argc, char** argv) {
     boost::shared_ptr<ObjectModel > om = ObjectModel::readFromXml("/tmp/om.xml");
     std::cout << "Object Model features: " << om->getFeaturesCount() << std::endl;
 
-    std::string grasp_model_name("grasp_models/force.xml");
     // generate the query density
     std::cout << "generating the Query Density..." << std::endl;
     {
@@ -290,7 +293,6 @@ int main(int argc, char** argv) {
     boost::shared_ptr<CollisionModel > cm = CollisionModel::readFromXml("/tmp/qd.xml");
     boost::shared_ptr<HandConfigurationModel > hm = HandConfigurationModel::readFromXml("/tmp/qd.xml");
 
-
     const std::string ob_name( "graspable" );
 
     ros::init(argc, argv, "dart_test");
@@ -302,6 +304,11 @@ int main(int argc, char** argv) {
 
     tf::TransformBroadcaster br;
     MarkerPublisher markers_pub(nh_);
+
+    ros::Duration(0.5).sleep();
+    markers_pub.addEraseMarkers(0, 10000);
+    markers_pub.publish();
+    ros::spinOnce();
 
     std::string package_path_barrett = ros::package::getPath("barrett_hand_defs");
     std::string package_path_sim = ros::package::getPath("barrett_hand_sim_dart");
@@ -326,46 +333,25 @@ int main(int argc, char** argv) {
 
     Eigen::Vector3d grav(0,0,-1);
     world->setGravity(grav);
-    scene->getBodyNode(ob_name)->setFrictionCoeff(0.4);
+    scene->getBodyNode(ob_name)->setFrictionCoeff(0.1);
 
-    publishScene(markers_pub, br, world, bh);
+    addScene(markers_pub, br, world, bh);
+    markers_pub.publish();
+    ros::spinOnce();
 
     // let the object fall
     int counter = 0;
     while (ros::ok()) {
             world->step(false);
 
-            for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
-                dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
-                const Eigen::Isometry3d &tf = b->getTransform();
-                KDL::Frame T_W_L;
-                EigenTfToKDL(tf, T_W_L);
-                publishTransform(br, T_W_L, b->getName(), "world");
+            if (counter % 10 == 0) {
+                addScene(markers_pub, br, world, bh);
+                markers_pub.publish();
+                ros::spinOnce();
             }
-
-            int m_id = 0;
-            for (int bidx = 0; bidx < scene->getNumBodyNodes(); bidx++) {
-                    dart::dynamics::BodyNode *b = scene->getBodyNode(bidx);
-
-                    const Eigen::Isometry3d &tf = b->getTransform();
-                    KDL::Frame T_W_L;
-                    EigenTfToKDL(tf, T_W_L);
-                    publishTransform(br, T_W_L, b->getName(), "world");
-                    for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
-                        dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
-                        if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
-                            std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-                            m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
-                        }
-                    }
-            }
-
-            markers_pub.publish();
-
-            ros::spinOnce();
 
             counter++;
-            if (counter > 1000) {
+            if (counter > 2000) {
                 break;
             }
     }
@@ -393,7 +379,7 @@ int main(int argc, char** argv) {
     // publish grasped object model
     publishTransform(br, T_W_O, ob_name, "world");
 
-    m_id = visualiseAllFeatures(markers_pub, m_id, om->getFeaturesData(), ob_name);
+//    m_id = visualiseAllFeatures(markers_pub, m_id, om->getFeaturesData(), ob_name);
 
     int n_solutions = 400;
     std::vector<GraspSolution > solutions;
@@ -439,6 +425,7 @@ int main(int argc, char** argv) {
 //    std::cout << "best: " << cost_max << "   good_grasps_count " << good_grasps_count << std::endl;
 
     std::cout << "solutions found: " << solutions.size() << std::endl;
+    outf << "solutions:\t" << solutions.size() << "\t";
 
     std::sort(solutions.begin(), solutions.end());
     std::reverse(solutions.begin(), solutions.end());
@@ -446,6 +433,7 @@ int main(int argc, char** argv) {
     solutions.resize(solutions.size() / 10);
 
     std::cout << "reduced solutions to: " << solutions.size() << std::endl;
+    outf << "reduced_sol:\t" << solutions.size() << "\t";
 
     std::vector<GraspSolution > solutions_best(solutions);
 
@@ -514,7 +502,9 @@ int main(int argc, char** argv) {
     std::reverse(solutions.begin(), solutions.end());
 //    std::cout << solutions[0].score_ << "   " << solutions[1].score_ << "   " << solutions[2].score_ << "   " << solutions[3].score_ << std::endl;
 
-    publishScene(markers_pub, br, world, bh);
+    addScene(markers_pub, br, world, bh);
+    markers_pub.publish();
+    ros::spinOnce();
 
     std::list<GraspSpecification > gspec_list;
 
@@ -565,6 +555,7 @@ int main(int argc, char** argv) {
             q_map = min_q_map;
             T_W_E = min_T_W_E;
             GraspSpecification gspec;
+            gspec.solution_idx_ = sidx;
             gspec.T_W_E_ = T_W_E;
             gspec.q_init_map_ = q_map;
             gspec.q_goal_map_ = q_map;
@@ -589,7 +580,7 @@ int main(int argc, char** argv) {
             EigenTfToKDL(tf, T_W_L);
             publishTransform(br, T_W_L, b->getName(), "world");
         }
-
+/*
             std::cout << "total cost " << solutions[sidx].score_ << std::endl;
             double cost = hm->getDensity(q_map);
             std::cout << "   cost (hm) " << cost << std::endl;
@@ -603,7 +594,7 @@ int main(int argc, char** argv) {
                 cost *= cost_link;
                 std::cout << "   cost " << (*lit) << "   " << cost_link << std::endl;
             }
-
+*/
         markers_pub.publish();
         ros::spinOnce();
         loop_rate.sleep();
@@ -612,6 +603,8 @@ int main(int argc, char** argv) {
             break;
         }
     }
+
+    outf << "valid_grasps:\t" << gspec_list.size() << "\t";
 
     scene->enableSelfCollision(true);
 
@@ -637,16 +630,17 @@ int main(int argc, char** argv) {
 
         // set-up the gripper controller
         GripperController gc;
-        double Kc = 400.0;
+        double Kc = 200.0;      // 400.0
+        double u_max = 30.0;    // 50.0
         double KcDivTi = Kc / 1.0;
-        gc.addJoint("right_HandFingerOneKnuckleOneJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, true, false);
-        gc.addJoint("right_HandFingerOneKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, false, true);
-        gc.addJoint("right_HandFingerTwoKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, false, true);
-        gc.addJoint("right_HandFingerThreeKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, false, true);
-        gc.addJointMimic("right_HandFingerTwoKnuckleOneJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, true, "right_HandFingerOneKnuckleOneJoint", 1.0, 0.0);
-        gc.addJointMimic("right_HandFingerOneKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerOneKnuckleTwoJoint", 0.333333, 0.0);
-        gc.addJointMimic("right_HandFingerTwoKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerTwoKnuckleTwoJoint", 0.333333, 0.0);
-        gc.addJointMimic("right_HandFingerThreeKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerThreeKnuckleTwoJoint", 0.333333, 0.0);
+        gc.addJoint("right_HandFingerOneKnuckleOneJoint", Kc, KcDivTi, 0.0, 0.001, u_max, true, false);
+        gc.addJoint("right_HandFingerOneKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, u_max, false, true);
+        gc.addJoint("right_HandFingerTwoKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, u_max, false, true);
+        gc.addJoint("right_HandFingerThreeKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, u_max, false, true);
+        gc.addJointMimic("right_HandFingerTwoKnuckleOneJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, u_max, true, "right_HandFingerOneKnuckleOneJoint", 1.0, 0.0);
+        gc.addJointMimic("right_HandFingerOneKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, u_max, false, "right_HandFingerOneKnuckleTwoJoint", 0.333333, 0.0);
+        gc.addJointMimic("right_HandFingerTwoKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, u_max, false, "right_HandFingerTwoKnuckleTwoJoint", 0.333333, 0.0);
+        gc.addJointMimic("right_HandFingerThreeKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, u_max, false, "right_HandFingerThreeKnuckleTwoJoint", 0.333333, 0.0);
         gc.setGoalPosition("right_HandFingerOneKnuckleOneJoint", gspec.getGoalPosition("right_HandFingerOneKnuckleOneJoint"));
         gc.setGoalPosition("right_HandFingerOneKnuckleTwoJoint", gspec.getGoalPosition("right_HandFingerOneKnuckleTwoJoint"));
         gc.setGoalPosition("right_HandFingerTwoKnuckleTwoJoint", gspec.getGoalPosition("right_HandFingerTwoKnuckleTwoJoint"));
@@ -697,39 +691,11 @@ int main(int argc, char** argv) {
                 }
                 j->setForce(0, 0.02*(u-dq) + Cg(qidx));
             }
-
-            for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
-                dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
-                const Eigen::Isometry3d &tf = b->getTransform();
-                KDL::Frame T_W_L;
-                EigenTfToKDL(tf, T_W_L);
-                publishTransform(br, T_W_L, b->getName(), "world");
+            if (counter % 10 == 0) {
+                addScene(markers_pub, br, world, bh);
+                markers_pub.publish();
+                ros::spinOnce();
             }
-
-            int m_id = 0;
-            for (int bidx = 0; bidx < scene->getNumBodyNodes(); bidx++) {
-                    dart::dynamics::BodyNode *b = scene->getBodyNode(bidx);
-                    Eigen::Vector3d color(0, 0.4, 0);
-                    if (b->getName() == ob_name) {
-                        color = Eigen::Vector3d(0.6, 0, 0);
-                    }
-                    const Eigen::Isometry3d &tf = b->getTransform();
-                    KDL::Frame T_W_L;
-                    EigenTfToKDL(tf, T_W_L);
-                    publishTransform(br, T_W_L, b->getName(), "world");
-                    for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
-                        dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
-                        if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
-                            std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-                            m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), color(0), color(1), color(2), 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
-                        }
-                    }
-            }
-
-            markers_pub.publish();
-
-            ros::spinOnce();
-            loop_rate.sleep();
 
             counter++;
             if (counter < 3000) {
@@ -747,7 +713,7 @@ int main(int argc, char** argv) {
                 bh->getDof("bh_free_pos_y")->setVelocity(0.0);
                 bh->getDof("bh_free_pos_z")->setVelocity(0.0);
             }
-            else if (counter < 4000) {
+            else if (counter < 5000) {
                 KDL::Vector vel_W(0, 0, 0.1);
                 KDL::Frame T_E_W(gspec.T_W_E_.Inverse());
                 KDL::Vector vel_E(KDL::Frame(T_E_W.M) * vel_W);
@@ -763,7 +729,16 @@ int main(int argc, char** argv) {
                 break;
             }
         }
+        tf = scene->getBodyNode(ob_name)->getRelativeTransform();
+        KDL::Frame T_W_O_after;
+        EigenTfToKDL(tf, T_W_O_after);
+
+        bool success(false);
+        if (T_W_O_after.p.z() > T_W_O.p.z() + 0.1) {
+            success = true;
+        }
+        outf << "success:\t" << (success?1:0) << "\tscore:\t" << solutions[gspec.solution_idx_].score_ << "\t";
+        std::cout << "success: " << (success?1:0) << "   score: " << solutions[gspec.solution_idx_].score_ << std::endl;
     }
 }
-
 
