@@ -1,0 +1,38 @@
+#!/bin/bash
+
+rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_container_1.urdf src/barrett_hand_sim_dart/scenes/test_container_1.urdf.xacro
+rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_container_2.urdf src/barrett_hand_sim_dart/scenes/test_container_2.urdf.xacro
+rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_cuboid.urdf src/barrett_hand_sim_dart/scenes/test_cuboid.urdf.xacro
+rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_cylinder4_lying.urdf src/barrett_hand_sim_dart/scenes/test_cylinder4_lying.urdf.xacro
+rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_cylinder4_standing.urdf src/barrett_hand_sim_dart/scenes/test_cylinder4_standing.urdf.xacro
+rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_kettle.urdf src/barrett_hand_sim_dart/scenes/test_kettle.urdf.xacro
+rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_mug.urdf src/barrett_hand_sim_dart/scenes/test_mug.urdf.xacro
+
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_container_1.urdf grasp_models/sph.xml test_result_000.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_container_1.urdf grasp_models/pinch.xml test_result_001.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_container_1.urdf grasp_models/force.xml test_result_002.txt
+
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_container_2.urdf grasp_models/sph.xml test_result_003.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_container_2.urdf grasp_models/pinch.xml test_result_004.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_container_2.urdf grasp_models/force.xml test_result_005.txt
+
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_cuboid.urdf grasp_models/sph.xml test_result_006.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_cuboid.urdf grasp_models/pinch.xml test_result_007.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_cuboid.urdf grasp_models/force.xml test_result_008.txt
+
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_cylinder4_lying.urdf grasp_models/sph.xml test_result_009.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_cylinder4_lying.urdf grasp_models/pinch.xml test_result_010.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_cylinder4_lying.urdf grasp_models/force.xml test_result_011.txt
+
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_cylinder4_standing.urdf grasp_models/sph.xml test_result_012.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_cylinder4_standing.urdf grasp_models/pinch.xml test_result_013.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_cylinder4_standing.urdf grasp_models/force.xml test_result_014.txt
+
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_kettle.urdf grasp_models/sph.xml test_result_015.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_kettle.urdf grasp_models/pinch.xml test_result_016.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_kettle.urdf grasp_models/force.xml test_result_017.txt
+
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_mug.urdf grasp_models/sph.xml test_result_018.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_mug.urdf grasp_models/pinch.xml test_result_019.txt
+rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_mug.urdf grasp_models/force.xml test_result_020.txt
+
