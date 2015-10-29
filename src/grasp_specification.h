@@ -45,6 +45,7 @@ class GraspSpecification {
 public:
     std::map<std::string, double > q_init_map_;
     std::map<std::string, double > q_goal_map_;
+    KDL::Frame T_W_E_;
 
     double getInitPosition(const std::string &joint_name) const;
     double getGoalPosition(const std::string &joint_name) const;

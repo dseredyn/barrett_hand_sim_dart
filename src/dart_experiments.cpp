@@ -61,8 +61,41 @@
 #include "grasp_specification.h"
 #include "models.h"
 #include "mesh_sampling.h"
+#include "visual_debug.h"
 
 #include "gripper_controller.h"
+
+bool checkCollision(dart::simulation::World* world, const dart::dynamics::SkeletonPtr &bh, const std::map<std::string, double> &q_map, const KDL::Frame &T_W_E) {
+    Eigen::Isometry3d tf;
+    KDLToEigenTf(T_W_E, tf);
+    bh->getJoint(0)->setTransformFromParentBodyNode(tf);
+    for (std::map<std::string, double>::const_iterator it = q_map.begin(); it != q_map.end(); it++) {
+        dart::dynamics::Joint *j = bh->getJoint( it-> first );
+        j->setPosition( 0, it->second );
+        if (it->second != it->second) {
+            std::cout << "ERROR: checkCollision" << std::endl;
+            return false;
+        }
+    }
+
+    dart::collision::CollisionDetector* detector =
+        world->getConstraintSolver()->getCollisionDetector();
+    detector->detectCollision(true, true);
+
+    bool collision = false;
+    size_t collisionCount = detector->getNumContacts();
+    for(size_t i = 0; i < collisionCount; ++i)
+    {
+      const dart::collision::Contact& contact = detector->getContact(i);
+      if(contact.bodyNode1.lock()->getSkeleton()->getName() == bh->getName()
+         || contact.bodyNode2.lock()->getSkeleton()->getName() == bh->getName())
+      {
+        collision = true;
+        break;
+      }
+    }
+    return collision;
+}
 
 void publishScene(MarkerPublisher &markers_pub, tf::TransformBroadcaster &br, dart::simulation::World* world, dart::dynamics::SkeletonPtr &bh) {
     ros::Rate loop_rate(400);
@@ -117,13 +150,11 @@ double getTransitionProbability(double cost1, double cost2, double temperature) 
 }
 
 void getFK(const dart::dynamics::SkeletonPtr &bh, const std::map<std::string, double> &q_map, const std::string &link1_name, const std::string &link2_name, KDL::Frame &T_L1_L2) {
-//    std::map<std::string, double> saved_q_map;
     Eigen::Isometry3d tf;
     KDLToEigenTf(KDL::Frame(), tf);
     bh->getJoint(0)->setTransformFromParentBodyNode(tf);
     for (std::map<std::string, double>::const_iterator it = q_map.begin(); it != q_map.end(); it++) {
         dart::dynamics::Joint *j = bh->getJoint( it-> first );
-//        saved_q_map[it->first] = j->getPosition( 0 );
         j->setPosition( 0, it->second );
         if (it->second != it->second) {
             std::cout << "ERROR: getFK" << std::endl;
@@ -175,12 +206,6 @@ void getFK(const dart::dynamics::SkeletonPtr &bh, const std::map<std::string, do
         std::cout << "ERROR: getFK T_L1_L2 " << link1_name << " " << link2_name << " " << T_W_L1 << " " << T_W_L2 << std::endl;
         *((int*)0) = 0;
     }
-/*
-    for (std::map<std::string, double>::const_iterator it = saved_q_map.begin(); it != saved_q_map.end(); it++) {
-        dart::dynamics::Joint *j = bh->getJoint( it-> first );
-        j->setPosition( 0, it->second );
-    }
-*/
 }
 
 class GraspSolution {
@@ -238,39 +263,42 @@ int main(int argc, char** argv) {
 
     std::string package_name( argv[1] );
     std::string scene_urdf( argv[2] );
-    std::string package_path;
-    {
-        ros::init(argc, argv, "dart_test");
-        ros::NodeHandle nh_;
-        package_path = ros::package::getPath(package_name);
-        ros::shutdown();
-    }
 
     // generate the object model
     std::cout << "generating the Object Model..." << std::endl;
     {
         std::string om_cmd(std::string("rosrun barrett_hand_sim_dart barrett_hand_sim_dart_generate_object_model ") + package_name + std::string(" ") + scene_urdf + std::string(" /tmp/om.xml"));
-        std::system(om_cmd.c_str());
+        int exit_code = std::system(om_cmd.c_str());
+        if (exit_code != 0) {
+            std::cout << "ERROR: Object Model generator returned exit code " << exit_code << std::endl;
+        }
     }
     boost::shared_ptr<ObjectModel > om = ObjectModel::readFromXml("/tmp/om.xml");
     std::cout << "Object Model features: " << om->getFeaturesCount() << std::endl;
 
-    std::string grasp_model_name("grasp_models/pinch.xml");
+    std::string grasp_model_name("grasp_models/force.xml");
     // generate the query density
     std::cout << "generating the Query Density..." << std::endl;
     {
         std::string om_cmd(std::string("rosrun barrett_hand_sim_dart barrett_hand_sim_dart_generate_query_density /tmp/om.xml ") + grasp_model_name + std::string(" /tmp/qd.xml"));
-        std::system(om_cmd.c_str());
+        int exit_code = std::system(om_cmd.c_str());
+        if (exit_code != 0) {
+            std::cout << "ERROR: Query Density generator returned exit code " << exit_code << std::endl;
+        }
     }
     boost::shared_ptr<QueryDensity > qd = QueryDensity::readFromXml("/tmp/qd.xml");
     boost::shared_ptr<CollisionModel > cm = CollisionModel::readFromXml("/tmp/qd.xml");
     boost::shared_ptr<HandConfigurationModel > hm = HandConfigurationModel::readFromXml("/tmp/qd.xml");
 
+
+    const std::string ob_name( "graspable" );
+
     ros::init(argc, argv, "dart_test");
     ros::NodeHandle nh_;
 
-    ros::Rate loop_rate(400);
+    std::string package_path = ros::package::getPath(package_name);
 
+    ros::Rate loop_rate(400);
 
     tf::TransformBroadcaster br;
     MarkerPublisher markers_pub(nh_);
@@ -296,59 +324,63 @@ int main(int argc, char** argv) {
     world->addSkeleton(scene);
     world->addSkeleton(bh);
 
-    Eigen::Vector3d grav(0,0,0);
+    Eigen::Vector3d grav(0,0,-1);
     world->setGravity(grav);
-
-    tf = scene->getBodyNode("graspable")->getRelativeTransform();
-    KDL::Frame T_W_O;
-    EigenTfToKDL(tf, T_W_O);
-
-/*
-    for (std::map<std::string, double>::const_iterator it = gs->q_map_.begin(); it != gs->q_map_.end(); it++) {
-        dart::dynamics::Joint *j = bh->getJoint( it-> first );
-        j->setPosition( 0, it->second );
-    }
-
-    tf = bh->getBodyNode("right_HandPalmLink")->getTransform();
-    KDL::Frame T_W_E;
-    EigenTfToKDL(tf, T_W_E);
-    KDL::Frame T_W_O = T_W_E * gs->T_E_O_;
-
-    KDLToEigenTf(T_W_O, tf);
-    domino->getJoint(0)->setTransformFromParentBodyNode(tf);
-*/
+    scene->getBodyNode(ob_name)->setFrictionCoeff(0.4);
 
     publishScene(markers_pub, br, world, bh);
 
-    const double sigma_p = 0.005;
-    const double sigma_q = 100.0;
-    const double sigma_r = 0.05;
+    // let the object fall
+    int counter = 0;
+    while (ros::ok()) {
+            world->step(false);
 
-//    {
-//        KDL::Frame T_L_C;
-//        cm->getT_L_C("right_HandFingerTwoKnuckleThreeLink", T_L_C);
-//        m_id = visualiseContactRegion( markers_pub, m_id, cm->getLinkFeatures("right_HandFingerTwoKnuckleThreeLink"), T_L_C, T_W_E * frames_map["right_HandPalmLink"].Inverse() * frames_map["right_HandFingerTwoKnuckleThreeLink"] );
-//    }
-//    m_id = visualiseAllFeatures(markers_pub, m_id, om.getPointFeatures(), ob_name);
-//    m_id = visualiseRejectionSamplingVonMisesFisher3(markers_pub, m_id);
-//    m_id = visualiseRejectionSamplingVonMisesFisher4(markers_pub, m_id);
+            for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
+                dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
+                const Eigen::Isometry3d &tf = b->getTransform();
+                KDL::Frame T_W_L;
+                EigenTfToKDL(tf, T_W_L);
+                publishTransform(br, T_W_L, b->getName(), "world");
+            }
 
+            int m_id = 0;
+            for (int bidx = 0; bidx < scene->getNumBodyNodes(); bidx++) {
+                    dart::dynamics::BodyNode *b = scene->getBodyNode(bidx);
+
+                    const Eigen::Isometry3d &tf = b->getTransform();
+                    KDL::Frame T_W_L;
+                    EigenTfToKDL(tf, T_W_L);
+                    publishTransform(br, T_W_L, b->getName(), "world");
+                    for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
+                        dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
+                        if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
+                            std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
+                            m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
+                        }
+                    }
+            }
+
+            markers_pub.publish();
+
+            ros::spinOnce();
+
+            counter++;
+            if (counter > 1000) {
+                break;
+            }
+    }
+
+    tf = scene->getBodyNode(ob_name)->getRelativeTransform();
+    KDL::Frame T_W_O;
+    EigenTfToKDL(tf, T_W_O);
+
+    Eigen::VectorXd graspable_object_pose(6);
+    for (int didx = 0; didx < 6; didx++) {
+        graspable_object_pose(didx) = scene->getJoint("map_graspable_joint")->getDof(didx)->getPosition();
+    }
 
     std::random_device rd;
     std::mt19937 gen(rd());
-
-/*
-    boost::shared_ptr<QueryDensity > pqd = QueryDensity::readFromXml("qd.xml");
-    if (*pqd.get() == *qd.get()) {
-        std::cout << "the same" << std::endl;
-    }
-    else {
-        std::cout << "different" << std::endl;
-    }
-//    pqd->writeToXml("qd2.xml");
-
-    return 0;
-*/
 
     int m_id = 0;
     ros::Duration(1.0).sleep();
@@ -359,32 +391,10 @@ int main(int argc, char** argv) {
     // visualisation
 
     // publish grasped object model
-    publishTransform(br, T_W_O, "graspable", "world");
-    for (int i = 0; i < om_f_vec.size(); i++) {
-        if (rand() % 4 == 0) {
-            m_id = markers_pub.addSinglePointMarkerCube(m_id, om_f_vec[i].T_O_F_.p, 1, 1, 1, 1, 0.001, 0.001, 0.001, "graspable");
-        }
-    }
+    publishTransform(br, T_W_O, ob_name, "world");
 
-    markers_pub.publish();
-    ros::spinOnce();
+    m_id = visualiseAllFeatures(markers_pub, m_id, om->getFeaturesData(), ob_name);
 
-/*
-    publishTransform(br, T_W_O, "graspable", "world");
-
-    m_id = visualiseQueryDensityParticles(markers_pub, m_id, qd->qd_map_["right_HandFingerTwoKnuckleThreeLink"].vec_, "graspable");
-            markers_pub.publish();
-        ros::spinOnce();
-        loop_rate.sleep();
-        ros::Duration(1.0).sleep();
-
-    return 0;
-*/
-
-//    double cost_max = 0.0;
-//    int good_grasps_count = 0;
-//    KDL::Frame T_W_E_best;
-//    std::map<std::string, double> q_best;
     int n_solutions = 400;
     std::vector<GraspSolution > solutions;
     for (int  i = 0; i < n_solutions; i++) {
@@ -441,20 +451,6 @@ int main(int argc, char** argv) {
 
     double temperature = 100.0;
 
-
-/*
-    {
-        KDL::Frame T_L_C;
-        cm->getT_L_C("right_HandFingerTwoKnuckleThreeLink", T_L_C);
-        m_id = visualiseQueryDensityFunction(br, markers_pub, m_id, *qd.get(), "right_HandFingerTwoKnuckleThreeLink", T_L_C, T_W_O, "graspable");
-    }
-
-        markers_pub.publish();
-        ros::spinOnce();
-        loop_rate.sleep();
-        ros::Duration(1.0).sleep();
-    return 0;
-//*/
     int steps = 40;
     for (int i = 0; i < steps; i++) {
         int good_solutions = 0;
@@ -509,36 +505,10 @@ int main(int argc, char** argv) {
             }
         }
 
-//        std::sort(solutions.begin(), solutions.end());
-//        std::reverse(solutions.begin(), solutions.end());
-//"   " << solutions[0].score_ << "   " << solutions[1].score_ << "   " << solutions[2].score_ << "   " << solutions[3].score_ << std::endl;
-
         temperature = 100.0 * static_cast<double >(steps - 1 - i) / static_cast<double >(steps - 1);
         std::cout << "good_solutions: " << good_solutions << std::endl;
     }
 
-
-/*
-        // evaluate all solutions
-        for (int sidx = 0; sidx < n_solutions; sidx++) {
-            if (solutions[sidx].score_ > -0.1) {
-                continue;
-            }
-            double cost = hm->getDensity(solutions[sidx].q_map_);
-            for (std::vector<std::string >::const_iterator lit = cm->getLinkNamesCol().begin(); lit != cm->getLinkNamesCol().end(); lit++) {
-                KDL::Frame T_E_L;
-                getFK(bh, solutions[sidx].q_map_, "right_HandPalmLink", (*lit), T_E_L);
-                KDL::Frame T_O_L( T_W_O.Inverse() * solutions[sidx].T_W_E_ * T_E_L );
-                KDL::Frame T_L_C;
-                cm->getT_L_C((*lit), T_L_C);
-                cost *= qd->getQueryDensity((*lit), T_O_L * T_L_C);
-            }
-            if (cost != cost) {
-                cost = 0.0;
-            }
-            solutions[sidx].score_ = cost;
-        }
-*/
     solutions = solutions_best;
     std::sort(solutions.begin(), solutions.end());
     std::reverse(solutions.begin(), solutions.end());
@@ -546,10 +516,67 @@ int main(int argc, char** argv) {
 
     publishScene(markers_pub, br, world, bh);
 
+    std::list<GraspSpecification > gspec_list;
+
     for (int sidx = 0; sidx < solutions.size(); sidx++) {
-        KDLToEigenTf(solutions[sidx].T_W_E_, tf);
+        std::map<std::string, double> q_map(solutions[sidx].q_map_);
+        KDL::Frame T_W_E(solutions[sidx].T_W_E_);
+        double min_dist = -1.0;
+        std::map<std::string, double> min_q_map(solutions[sidx].q_map_);
+        KDL::Frame min_T_W_E(solutions[sidx].T_W_E_);
+        for (int tryi = 0; tryi < 250; tryi++) {
+            if (!checkCollision(world, bh, q_map, T_W_E)) {
+                double dist = (T_W_E.p - solutions[sidx].T_W_E_.p).Norm();
+                if (min_dist < 0.0 || min_dist > dist) {
+                    min_dist = dist;
+                    min_q_map = q_map;
+                    min_T_W_E = T_W_E;
+                }
+            }
+
+            std::normal_distribution<> d_conf = std::normal_distribution<>(0, 5.0/180.0*PI);
+            q_map = solutions[sidx].q_map_;
+            double angleDiffF1 = std::fabs(d_conf(gen)) + 5.0/180.0*PI;
+            double angleDiffF2 = std::fabs(d_conf(gen)) + 5.0/180.0*PI;
+            double angleDiffF3 = std::fabs(d_conf(gen)) + 5.0/180.0*PI;
+            q_map["right_HandFingerOneKnuckleTwoJoint"] -= angleDiffF1;
+            q_map["right_HandFingerTwoKnuckleTwoJoint"] -= angleDiffF2;
+            q_map["right_HandFingerThreeKnuckleTwoJoint"] -= angleDiffF3;
+            q_map["right_HandFingerOneKnuckleThreeJoint"] -= angleDiffF1*0.333333;
+            q_map["right_HandFingerTwoKnuckleThreeJoint"] -= angleDiffF2*0.333333;
+            q_map["right_HandFingerThreeKnuckleThreeJoint"] -= angleDiffF3*0.333333;
+            // apply joint limits
+            for (std::map<std::string, double>::iterator it = q_map.begin(); it != q_map.end(); it++) {
+                dart::dynamics::Joint *j = bh->getJoint( it-> first );
+                it->second = std::max( j->getPositionLowerLimit( 0 ), it->second );
+                it->second = std::min( j->getPositionUpperLimit( 0 ), it->second );
+            }
+            std::normal_distribution<> d_pos = std::normal_distribution<>(0, 0.01);
+            T_W_E = KDL::Frame(KDL::Vector(d_pos(gen), d_pos(gen), d_pos(gen))) * solutions[sidx].T_W_E_;
+        }
+
+        if (min_dist < 0.0) {
+            std::cout << "could not find collision-less pose" << std::endl;
+            q_map = solutions[sidx].q_map_;
+            T_W_E = solutions[sidx].T_W_E_;
+        }
+        else {
+            std::cout << "found pose with distance: " << min_dist << std::endl;
+            q_map = min_q_map;
+            T_W_E = min_T_W_E;
+            GraspSpecification gspec;
+            gspec.T_W_E_ = T_W_E;
+            gspec.q_init_map_ = q_map;
+            gspec.q_goal_map_ = q_map;
+            gspec.q_goal_map_["right_HandFingerOneKnuckleTwoJoint"] += 30.0/180.0*PI;
+            gspec.q_goal_map_["right_HandFingerTwoKnuckleTwoJoint"] += 30.0/180.0*PI;
+            gspec.q_goal_map_["right_HandFingerThreeKnuckleTwoJoint"] += 30.0/180.0*PI;
+            gspec_list.push_back(gspec);
+        }
+
+        KDLToEigenTf(T_W_E, tf);
         bh->getJoint(0)->setTransformFromParentBodyNode(tf);
-        for (std::map<std::string, double>::const_iterator it = solutions[sidx].q_map_.begin(); it != solutions[sidx].q_map_.end(); it++) {
+        for (std::map<std::string, double>::const_iterator it = q_map.begin(); it != q_map.end(); it++) {
             dart::dynamics::Joint *j = bh->getJoint( it-> first );
             j->setPosition( 0, it->second );
         }
@@ -564,12 +591,12 @@ int main(int argc, char** argv) {
         }
 
             std::cout << "total cost " << solutions[sidx].score_ << std::endl;
-            double cost = hm->getDensity(solutions[sidx].q_map_);
+            double cost = hm->getDensity(q_map);
             std::cout << "   cost (hm) " << cost << std::endl;
             for (std::vector<std::string >::const_iterator lit = cm->getLinkNamesCol().begin(); lit != cm->getLinkNamesCol().end(); lit++) {
                 KDL::Frame T_E_L;
-                getFK(bh, solutions[sidx].q_map_, "right_HandPalmLink", (*lit), T_E_L);
-                KDL::Frame T_O_L( T_W_O.Inverse() * solutions[sidx].T_W_E_ * T_E_L );
+                getFK(bh, q_map, "right_HandPalmLink", (*lit), T_E_L);
+                KDL::Frame T_O_L( T_W_O.Inverse() * T_W_E * T_E_L );
                 KDL::Frame T_L_C;
                 cm->getT_L_C((*lit), T_L_C);
                 double cost_link = qd->getQueryDensity((*lit), T_O_L * T_L_C);
@@ -584,333 +611,159 @@ int main(int argc, char** argv) {
         if (!ros::ok()) {
             break;
         }
-        getchar();
     }
-    return 0;
 
-
-/*
-    // Load the Skeleton from a file
-    dart::utils::DartLoader loader;
-    loader.addPackageDirectory("barrett_hand_defs", package_path_barrett);
-    loader.addPackageDirectory("barrett_hand_sim_dart", package_path);
-
-    boost::shared_ptr<GraspSpecification > gspec = GraspSpecification::readFromUrdf(package_path + scene_urdf);
-
-    dart::dynamics::SkeletonPtr scene( loader.parseSkeleton(package_path + scene_urdf) );
     scene->enableSelfCollision(true);
 
-    dart::dynamics::SkeletonPtr bh( loader.parseSkeleton(package_path_barrett + "/robots/barrett_hand.urdf") );
-    Eigen::Isometry3d tf;
-    tf = scene->getBodyNode("gripper_mount_link")->getRelativeTransform();
-    bh->getJoint(0)->setTransformFromParentBodyNode(tf);
+    for (std::list<GraspSpecification >::const_iterator gspec_it = gspec_list.begin(); gspec_it != gspec_list.end(); gspec_it++) {
+        const GraspSpecification &gspec = (*gspec_it);
 
-    dart::simulation::World* world = new dart::simulation::World();
-
-    world->addSkeleton(scene);
-    world->addSkeleton(bh);
-
-    Eigen::Vector3d grav(0,0,-1);
-    world->setGravity(grav);
-
-    GripperController gc;
-
-    double Kc = 400.0;
-    double KcDivTi = Kc / 1.0;
-    gc.addJoint("right_HandFingerOneKnuckleOneJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, true, false);
-    gc.addJoint("right_HandFingerOneKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, false, true);
-    gc.addJoint("right_HandFingerTwoKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, false, true);
-    gc.addJoint("right_HandFingerThreeKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, false, true);
-
-    gc.addJointMimic("right_HandFingerTwoKnuckleOneJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, true, "right_HandFingerOneKnuckleOneJoint", 1.0, 0.0);
-    gc.addJointMimic("right_HandFingerOneKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerOneKnuckleTwoJoint", 0.333333, 0.0);
-    gc.addJointMimic("right_HandFingerTwoKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerTwoKnuckleTwoJoint", 0.333333, 0.0);
-    gc.addJointMimic("right_HandFingerThreeKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerThreeKnuckleTwoJoint", 0.333333, 0.0);
-
-    gc.setGoalPosition("right_HandFingerOneKnuckleOneJoint", gspec->getGoalPosition("right_HandFingerOneKnuckleOneJoint"));
-    gc.setGoalPosition("right_HandFingerOneKnuckleTwoJoint", gspec->getGoalPosition("right_HandFingerOneKnuckleTwoJoint"));
-    gc.setGoalPosition("right_HandFingerTwoKnuckleTwoJoint", gspec->getGoalPosition("right_HandFingerTwoKnuckleTwoJoint"));
-    gc.setGoalPosition("right_HandFingerThreeKnuckleTwoJoint", gspec->getGoalPosition("right_HandFingerThreeKnuckleTwoJoint"));
-
-    std::map<std::string, double> joint_q_map;
-    joint_q_map["right_HandFingerOneKnuckleOneJoint"] = gspec->getInitPosition("right_HandFingerOneKnuckleOneJoint");
-    joint_q_map["right_HandFingerTwoKnuckleOneJoint"] = gspec->getInitPosition("right_HandFingerOneKnuckleOneJoint");
-    joint_q_map["right_HandFingerOneKnuckleTwoJoint"] = gspec->getInitPosition("right_HandFingerOneKnuckleTwoJoint");
-    joint_q_map["right_HandFingerOneKnuckleThreeJoint"] = 0.333333 * gspec->getInitPosition("right_HandFingerOneKnuckleTwoJoint");
-    joint_q_map["right_HandFingerTwoKnuckleTwoJoint"] = gspec->getInitPosition("right_HandFingerTwoKnuckleTwoJoint");
-    joint_q_map["right_HandFingerTwoKnuckleThreeJoint"] = 0.333333 * gspec->getInitPosition("right_HandFingerTwoKnuckleTwoJoint");
-    joint_q_map["right_HandFingerThreeKnuckleTwoJoint"] = gspec->getInitPosition("right_HandFingerThreeKnuckleTwoJoint");
-    joint_q_map["right_HandFingerThreeKnuckleThreeJoint"] = 0.333333 * gspec->getInitPosition("right_HandFingerThreeKnuckleTwoJoint");
-
-    for (std::vector<std::string >::const_iterator it = gc.getJointNames().begin(); it != gc.getJointNames().end(); it++) {
-        dart::dynamics::Joint *j = bh->getJoint((*it));
-        j->setActuatorType(dart::dynamics::Joint::FORCE);
-     	j->setPositionLimited(true);
-        j->setPosition(0, joint_q_map[(*it)]);
-    }
-
-    int counter = 0;
-
-    while (ros::ok()) {
-        world->step(false);
-
-        for (std::map<std::string, double>::iterator it = joint_q_map.begin(); it != joint_q_map.end(); it++) {
-            dart::dynamics::Joint *j = bh->getJoint(it->first);
-            it->second = j->getPosition(0);
+        {
+                dart::dynamics::Joint::Properties prop = bh->getJoint(0)->getJointProperties();
+                dart::dynamics::WeldJoint::Properties prop_weld;
+                bh->getRootBodyNode()->changeParentJointType<dart::dynamics::WeldJoint >(prop_weld);
         }
 
-        gc.controlStep(joint_q_map);
+        // set the transform of the gripper and the object
+        Eigen::Isometry3d tf;
+        KDLToEigenTf(gspec.T_W_E_, tf);
+        bh->getJoint(0)->setTransformFromParentBodyNode(tf);
 
-        // Compute the joint forces needed to compensate for Coriolis forces and
-        // gravity
-        const Eigen::VectorXd& Cg = bh->getCoriolisAndGravityForces();
+        KDLToEigenTf(T_W_O, tf);
+        for (int didx = 0; didx < 6; didx++) {
+            scene->getJoint("map_graspable_joint")->getDof(didx)->setPosition(graspable_object_pose(didx));
+            scene->getJoint("map_graspable_joint")->getDof(didx)->setVelocity(0);
+        }
 
-        for (std::map<std::string, double>::iterator it = joint_q_map.begin(); it != joint_q_map.end(); it++) {
-            dart::dynamics::Joint *j = bh->getJoint(it->first);
-            int qidx = j->getIndexInSkeleton(0);
-            double u = gc.getControl(it->first);
-            double dq = j->getVelocity(0);
-            if (!gc.isBackdrivable(it->first)) {
-                j->setPositionLowerLimit(0, std::max(j->getPositionLowerLimit(0), it->second-0.01));
+        // set-up the gripper controller
+        GripperController gc;
+        double Kc = 400.0;
+        double KcDivTi = Kc / 1.0;
+        gc.addJoint("right_HandFingerOneKnuckleOneJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, true, false);
+        gc.addJoint("right_HandFingerOneKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, false, true);
+        gc.addJoint("right_HandFingerTwoKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, false, true);
+        gc.addJoint("right_HandFingerThreeKnuckleTwoJoint", Kc, KcDivTi, 0.0, 0.001, 50.0, false, true);
+        gc.addJointMimic("right_HandFingerTwoKnuckleOneJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, true, "right_HandFingerOneKnuckleOneJoint", 1.0, 0.0);
+        gc.addJointMimic("right_HandFingerOneKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerOneKnuckleTwoJoint", 0.333333, 0.0);
+        gc.addJointMimic("right_HandFingerTwoKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerTwoKnuckleTwoJoint", 0.333333, 0.0);
+        gc.addJointMimic("right_HandFingerThreeKnuckleThreeJoint", 2.0*Kc, KcDivTi, 0.0, 0.001, 50.0, false, "right_HandFingerThreeKnuckleTwoJoint", 0.333333, 0.0);
+        gc.setGoalPosition("right_HandFingerOneKnuckleOneJoint", gspec.getGoalPosition("right_HandFingerOneKnuckleOneJoint"));
+        gc.setGoalPosition("right_HandFingerOneKnuckleTwoJoint", gspec.getGoalPosition("right_HandFingerOneKnuckleTwoJoint"));
+        gc.setGoalPosition("right_HandFingerTwoKnuckleTwoJoint", gspec.getGoalPosition("right_HandFingerTwoKnuckleTwoJoint"));
+        gc.setGoalPosition("right_HandFingerThreeKnuckleTwoJoint", gspec.getGoalPosition("right_HandFingerThreeKnuckleTwoJoint"));
+        std::map<std::string, double> joint_q_map;
+        joint_q_map["right_HandFingerOneKnuckleOneJoint"] = gspec.getInitPosition("right_HandFingerOneKnuckleOneJoint");
+        joint_q_map["right_HandFingerTwoKnuckleOneJoint"] = gspec.getInitPosition("right_HandFingerOneKnuckleOneJoint");
+        joint_q_map["right_HandFingerOneKnuckleTwoJoint"] = gspec.getInitPosition("right_HandFingerOneKnuckleTwoJoint");
+        joint_q_map["right_HandFingerOneKnuckleThreeJoint"] = 0.333333 * gspec.getInitPosition("right_HandFingerOneKnuckleTwoJoint");
+        joint_q_map["right_HandFingerTwoKnuckleTwoJoint"] = gspec.getInitPosition("right_HandFingerTwoKnuckleTwoJoint");
+        joint_q_map["right_HandFingerTwoKnuckleThreeJoint"] = 0.333333 * gspec.getInitPosition("right_HandFingerTwoKnuckleTwoJoint");
+        joint_q_map["right_HandFingerThreeKnuckleTwoJoint"] = gspec.getInitPosition("right_HandFingerThreeKnuckleTwoJoint");
+        joint_q_map["right_HandFingerThreeKnuckleThreeJoint"] = 0.333333 * gspec.getInitPosition("right_HandFingerThreeKnuckleTwoJoint");
+        for (std::vector<std::string >::const_iterator it = gc.getJointNames().begin(); it != gc.getJointNames().end(); it++) {
+            dart::dynamics::Joint *j = bh->getJoint((*it));
+            j->setActuatorType(dart::dynamics::Joint::FORCE);
+         	j->setPositionLimited(true);
+            j->setPosition(0, joint_q_map[(*it)]);
+        }
+
+        int counter = 0;
+        while (ros::ok()) {
+            world->step(false);
+
+            for (std::map<std::string, double>::iterator it = joint_q_map.begin(); it != joint_q_map.end(); it++) {
+                dart::dynamics::Joint *j = bh->getJoint(it->first);
+                it->second = j->getPosition(0);
             }
 
-            if (gc.isStopped(it->first)) {
-                j->setPositionLowerLimit(0, std::max(j->getPositionLowerLimit(0), it->second-0.01));
-                j->setPositionUpperLimit(0, std::min(j->getPositionUpperLimit(0), it->second+0.01));
-//                std::cout << it->first << " " << "stopped" << std::endl;
+            gc.controlStep(joint_q_map);
+
+            // Compute the joint forces needed to compensate for Coriolis forces and
+            // gravity
+            const Eigen::VectorXd& Cg = bh->getCoriolisAndGravityForces();
+
+            for (std::map<std::string, double>::iterator it = joint_q_map.begin(); it != joint_q_map.end(); it++) {
+                dart::dynamics::Joint *j = bh->getJoint(it->first);
+                int qidx = j->getIndexInSkeleton(0);
+                double u = gc.getControl(it->first);
+                double dq = j->getVelocity(0);
+                if (!gc.isBackdrivable(it->first)) {
+                    j->setPositionLowerLimit(0, std::max(j->getPositionLowerLimit(0), it->second-0.01));
+                }
+
+                if (gc.isStopped(it->first)) {
+                    j->setPositionLowerLimit(0, std::max(j->getPositionLowerLimit(0), it->second-0.01));
+                    j->setPositionUpperLimit(0, std::min(j->getPositionUpperLimit(0), it->second+0.01));
+                }
+                j->setForce(0, 0.02*(u-dq) + Cg(qidx));
             }
-            j->setForce(0, 0.02*(u-dq) + Cg(qidx));
-        }
 
-        for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
-            dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
-            const Eigen::Isometry3d &tf = b->getTransform();
-            KDL::Frame T_W_L;
-            EigenTfToKDL(tf, T_W_L);
-//            std::cout << b->getName() << std::endl;
-            publishTransform(br, T_W_L, b->getName(), "world");
-        }
-
-        int m_id = 0;
-        for (int bidx = 0; bidx < scene->getNumBodyNodes(); bidx++) {
-                dart::dynamics::BodyNode *b = scene->getBodyNode(bidx);
-
+            for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
+                dart::dynamics::BodyNode *b = bh->getBodyNode(bidx);
                 const Eigen::Isometry3d &tf = b->getTransform();
                 KDL::Frame T_W_L;
                 EigenTfToKDL(tf, T_W_L);
                 publishTransform(br, T_W_L, b->getName(), "world");
-                for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
-                    dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
-                    if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
-                        std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-                        m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
-                    }
-                }
-        }
-
-        markers_pub.publish();
-
-        ros::spinOnce();
-        loop_rate.sleep();
-
-        counter++;
-        if (counter < 3000) {
-        }
-        else if (counter == 3000) {
-            dart::dynamics::Joint::Properties prop = bh->getJoint(0)->getJointProperties();
-            dart::dynamics::FreeJoint::Properties prop_free;
-            prop_free.mName = prop_free.mName;
-            prop_free.mT_ParentBodyToJoint = prop.mT_ParentBodyToJoint;
-            prop_free.mT_ChildBodyToJoint = prop.mT_ChildBodyToJoint;
-            prop_free.mIsPositionLimited = false;
-            prop_free.mActuatorType = dart::dynamics::Joint::VELOCITY;
-            bh->getRootBodyNode()->changeParentJointType<dart::dynamics::FreeJoint >(prop_free);
-        }
-        else if (counter < 4000) {
-            bh->getDof("Joint_pos_z")->setVelocity(-0.1);
-        }
-        else {
-            break;
-        }
-    }
-
-    //
-    // generate models
-    //
-
-    const std::string ob_name( "graspable" );
-
-    scene->getBodyNode(ob_name)->setFrictionCoeff(0.001);
-
-    // calculate point clouds for all links and for the grasped object
-    std::map<std::string, pcl::PointCloud<pcl::PointNormal>::Ptr > point_clouds_map;
-    std::map<std::string, pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr > point_pc_clouds_map;
-    std::map<std::string, KDL::Frame > frames_map;
-    std::map<std::string, boost::shared_ptr<std::vector<KDL::Frame > > > features_map;
-    std::map<std::string, boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > > grids_map;
-    for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
-        dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
-
-        for (int bidx = 0; bidx < sk->getNumBodyNodes(); bidx++) {
-            dart::dynamics::BodyNode *b = sk->getBodyNode(bidx);
-            const Eigen::Isometry3d &tf = b->getTransform();
-            const std::string &body_name = b->getName();
-            if (body_name.find("right_Hand") != 0 && body_name != ob_name) {
-                continue;
             }
-            KDL::Frame T_W_L;
-            EigenTfToKDL(tf, T_W_L);
-            std::cout << body_name << "   " << b->getNumCollisionShapes() << std::endl;
-            for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
-                dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
-                if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
-                    std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-                    std::cout << "mesh path: " << msh->getMeshPath() << std::endl;
-                    const Eigen::Isometry3d &tf = sh->getLocalTransform();
-                    KDL::Frame T_L_S;
-                    EigenTfToKDL(tf, T_L_S);
-                    KDL::Frame T_S_L = T_L_S.Inverse();
 
-                    const aiScene *sc = msh->getMesh();
-                    if (sc->mNumMeshes != 1) {
-                        std::cout << "ERROR: sc->mNumMeshes = " << sc->mNumMeshes << std::endl;
+            int m_id = 0;
+            for (int bidx = 0; bidx < scene->getNumBodyNodes(); bidx++) {
+                    dart::dynamics::BodyNode *b = scene->getBodyNode(bidx);
+                    Eigen::Vector3d color(0, 0.4, 0);
+                    if (b->getName() == ob_name) {
+                        color = Eigen::Vector3d(0.6, 0, 0);
                     }
-                    int midx = 0;
-//                    std::cout << "v: " << sc->mMeshes[midx]->mNumVertices << "   f: " << sc->mMeshes[midx]->mNumFaces << std::endl;
-                    pcl::PointCloud<pcl::PointNormal>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointNormal>);
-                    uniform_sampling(sc->mMeshes[midx], 1000000, *cloud_1);
-                    for (int pidx = 0; pidx < cloud_1->points.size(); pidx++) {
-                        KDL::Vector pt_L = T_L_S * KDL::Vector(cloud_1->points[pidx].x, cloud_1->points[pidx].y, cloud_1->points[pidx].z);
-                        cloud_1->points[pidx].x = pt_L.x();
-                        cloud_1->points[pidx].y = pt_L.y();
-                        cloud_1->points[pidx].z = pt_L.z();
-                    }
-                    // Voxelgrid
-                    boost::shared_ptr<pcl::VoxelGrid<pcl::PointNormal> > grid_(new pcl::VoxelGrid<pcl::PointNormal>);
-                    pcl::PointCloud<pcl::PointNormal>::Ptr res(new pcl::PointCloud<pcl::PointNormal>);
-                    grid_->setDownsampleAllData(true);
-                    grid_->setSaveLeafLayout(true);
-                    grid_->setInputCloud(cloud_1);
-                    grid_->setLeafSize(0.004, 0.004, 0.004);
-                    grid_->filter (*res);
-                    point_clouds_map[body_name] = res;
-                    frames_map[body_name] = T_W_L;
-                    grids_map[body_name] = grid_;
-
-                    std::cout << "res->points.size(): " << res->points.size() << std::endl;
-
-                    pcl::search::KdTree<pcl::PointNormal>::Ptr tree (new pcl::search::KdTree<pcl::PointNormal>);
-
-                    // Setup the principal curvatures computation
-                    pcl::PrincipalCurvaturesEstimation<pcl::PointNormal, pcl::PointNormal, pcl::PrincipalCurvatures> principalCurvaturesEstimation;
-
-                    // Provide the original point cloud (without normals)
-                    principalCurvaturesEstimation.setInputCloud (res);
-
-                    // Provide the point cloud with normals
-                    principalCurvaturesEstimation.setInputNormals(res);
-
-                    // Use the same KdTree from the normal estimation
-                    principalCurvaturesEstimation.setSearchMethod (tree);
-                    principalCurvaturesEstimation.setRadiusSearch(0.02);
-
-                    // Actually compute the principal curvatures
-                    pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principalCurvatures (new pcl::PointCloud<pcl::PrincipalCurvatures> ());
-                    principalCurvaturesEstimation.compute (*principalCurvatures);
-                    point_pc_clouds_map[body_name] = principalCurvatures;
-
-                    features_map[body_name].reset( new std::vector<KDL::Frame >(res->points.size()) );
-                    for (int pidx = 0; pidx < res->points.size(); pidx++) {
-                        KDL::Vector nx, ny, nz(res->points[pidx].normal[0], res->points[pidx].normal[1], res->points[pidx].normal[2]);
-                        if ( std::fabs( principalCurvatures->points[pidx].pc1 - principalCurvatures->points[pidx].pc2 ) > 0.001) {
-                            nx = KDL::Vector(principalCurvatures->points[pidx].principal_curvature[0], principalCurvatures->points[pidx].principal_curvature[1], principalCurvatures->points[pidx].principal_curvature[2]);
+                    const Eigen::Isometry3d &tf = b->getTransform();
+                    KDL::Frame T_W_L;
+                    EigenTfToKDL(tf, T_W_L);
+                    publishTransform(br, T_W_L, b->getName(), "world");
+                    for (int cidx = 0; cidx < b->getNumCollisionShapes(); cidx++) {
+                        dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
+                        if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
+                            std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
+                            m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), color(0), color(1), color(2), 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
                         }
-                        else {
-                            if (std::fabs(nz.z()) < 0.7) {
-                                nx = KDL::Vector(0, 0, 1);
-                            }
-                            else {
-                                nx = KDL::Vector(1, 0, 0);
-                            }
-                        }
-                        ny = nz * nx;
-                        nx = ny * nz;
-                        nx.Normalize();
-                        ny.Normalize();
-                        nz.Normalize();
-                        (*features_map[body_name])[pidx] = KDL::Frame( KDL::Rotation(nx, ny, nz), KDL::Vector(res->points[pidx].x, res->points[pidx].y, res->points[pidx].z) );
                     }
-                }
+            }
+
+            markers_pub.publish();
+
+            ros::spinOnce();
+            loop_rate.sleep();
+
+            counter++;
+            if (counter < 3000) {
+            }
+            else if (counter == 3000) {
+                dart::dynamics::Joint::Properties prop = bh->getJoint(0)->getJointProperties();
+                dart::dynamics::FreeJoint::Properties prop_free;
+                prop_free.mName = "bh_free";
+                prop_free.mT_ParentBodyToJoint = prop.mT_ParentBodyToJoint;
+                prop_free.mT_ChildBodyToJoint = prop.mT_ChildBodyToJoint;
+                prop_free.mIsPositionLimited = false;
+                prop_free.mActuatorType = dart::dynamics::Joint::VELOCITY;
+                bh->getRootBodyNode()->changeParentJointType<dart::dynamics::FreeJoint >(prop_free);
+                bh->getDof("bh_free_pos_x")->setVelocity(0.0);
+                bh->getDof("bh_free_pos_y")->setVelocity(0.0);
+                bh->getDof("bh_free_pos_z")->setVelocity(0.0);
+            }
+            else if (counter < 4000) {
+                KDL::Vector vel_W(0, 0, 0.1);
+                KDL::Frame T_E_W(gspec.T_W_E_.Inverse());
+                KDL::Vector vel_E(KDL::Frame(T_E_W.M) * vel_W);
+
+                bh->getDof("bh_free_pos_x")->setVelocity(vel_E.x());
+                bh->getDof("bh_free_pos_y")->setVelocity(vel_E.y());
+                bh->getDof("bh_free_pos_z")->setVelocity(vel_E.z());
+            }
+            else {
+                bh->getDof("bh_free_pos_x")->setVelocity(0.0);
+                bh->getDof("bh_free_pos_y")->setVelocity(0.0);
+                bh->getDof("bh_free_pos_z")->setVelocity(0.0);
+                break;
             }
         }
     }
-
-    const double sigma_p = 0.01;//05;
-    const double sigma_q = 10.0/180.0*PI;//100.0;
-    const double sigma_r = 0.2;//05;
-    double sigma_c = 5.0/180.0*PI;
-
-    int m_id = 101;
-
-    // generate object model
-    boost::shared_ptr<ObjectModel > om(new ObjectModel);
-    for (int pidx = 0; pidx < point_clouds_map[ob_name]->points.size(); pidx++) {
-        if (point_pc_clouds_map[ob_name]->points[pidx].pc1 > 1.1 * point_pc_clouds_map[ob_name]->points[pidx].pc2) {
-            // e.g. pc1=1, pc2=0
-            // edge
-            om->addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(PI)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
-            om->addPointFeature((*features_map[ob_name])[pidx], point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
-        }
-        else {
-            for (double angle = 0.0; angle < 359.0/180.0*PI; angle += 20.0/180.0*PI) {
-                om->addPointFeature((*features_map[ob_name])[pidx] * KDL::Frame(KDL::Rotation::RotZ(angle)), point_pc_clouds_map[ob_name]->points[pidx].pc1, point_pc_clouds_map[ob_name]->points[pidx].pc2);
-            }
-        }
-    }
-
-
-    std::cout << "om.getPointFeatures().size(): " << om->getPointFeatures().size() << std::endl;
-    KDL::Frame T_W_O = frames_map[ob_name];
-
-    // generate collision model
-    std::map<std::string, std::list<std::pair<int, double> > > link_pt_map;
-    boost::shared_ptr<CollisionModel > cm(new CollisionModel);
-    cm->setSamplerParameters(sigma_p, sigma_q, sigma_r);
-
-    std::list<std::string > gripper_link_names;
-    for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
-        const std::string &link_name = bh->getBodyNode(bidx)->getName();
-        gripper_link_names.push_back(link_name);
-    }
-
-    double dist_range = 0.01;
-    for (std::list<std::string >::const_iterator nit = gripper_link_names.begin(); nit != gripper_link_names.end(); nit++) {
-        const std::string &link_name = (*nit);
-        if (point_clouds_map.find( link_name ) == point_clouds_map.end()) {
-            continue;
-        }
-        cm->addLinkContacts(dist_range, link_name, point_clouds_map[link_name], frames_map[link_name],
-                            om->getPointFeatures(), T_W_O);
-    }
-
-    // generate hand configuration model
-    boost::shared_ptr<HandConfigurationModel > hm(new HandConfigurationModel);
-    std::map<std::string, double> joint_q_map_before( joint_q_map );
-
-    double angleDiffKnuckleTwo = 15.0/180.0*PI;
-    joint_q_map_before["right_HandFingerOneKnuckleTwoJoint"] -= angleDiffKnuckleTwo;
-    joint_q_map_before["right_HandFingerTwoKnuckleTwoJoint"] -= angleDiffKnuckleTwo;
-    joint_q_map_before["right_HandFingerThreeKnuckleTwoJoint"] -= angleDiffKnuckleTwo;
-    joint_q_map_before["right_HandFingerOneKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
-    joint_q_map_before["right_HandFingerTwoKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
-    joint_q_map_before["right_HandFingerThreeKnuckleThreeJoint"] -= angleDiffKnuckleTwo*0.333333;
-
-    hm->generateModel(joint_q_map_before, joint_q_map, 1.0, 10, sigma_c);
-
-//    writeToXml(argv[3], cm, hm);
-
-    return 0;
-*/
 }
 
 

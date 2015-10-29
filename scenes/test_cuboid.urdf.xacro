@@ -1,0 +1,88 @@
+<?xml version="1.0"?>
+<robot xmlns:controller="http://playerstage.sourceforge.net/gazebo/xmlschema/#controller"
+                        xmlns:interface="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
+                        xmlns:sensor="http://playerstage.sourceforge.net/gazebo/xmlschema/#sensor"
+                        xmlns:xacro="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
+	 name="velma">
+
+  <xacro:include filename="$(find lwr_defs)/defs/materials.xml"/>
+  <xacro:include filename="$(find barrett_hand_defs)/defs/barret_hand.urdf.xacro"/>
+  
+  <property name="M_PI" value="3.1415926535897931" />
+  
+  <link name="world" />
+
+  <!-- static connection between the world frame and the map frame -->
+  <link name="map" />
+  <joint name="world_map_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="world"/>
+    <child link="map"/>
+  </joint>
+
+  <!-- the gripper -->
+  <joint name="map_gripper_joint" type="fixed">
+    <origin xyz="0.0 0.0 0.6" rpy="${M_PI} 0 0"/>
+    <parent link="map"/>
+    <child link="gripper_mount_link"/>
+  </joint>
+
+  <link name="gripper_mount_link">
+  </link>
+<!--
+  <xacro:barret_hand prefix="right" parent="gripper_mount_link">
+    <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
+  </xacro:barret_hand>
+-->
+  <!-- the scene -->
+  <joint name="map_plane_joint" type="fixed">
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+    <parent link="map"/>
+    <child link="plane"/>
+  </joint>
+  <link name="plane">
+    <inertial>
+      <origin xyz="0.00035500 -0.00499005 0.04864979"/>
+      <mass value="0.63352875"/>
+      <inertia ixx="0.00102103" ixy="0.00000775" ixz="-0.00001230" iyy="0.00080944" iyz="-0.00014417" izz="0.00068788"/>
+    </inertial>
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://barrett_hand_sim_dart/meshes/plane.stl"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://barrett_hand_sim_dart/meshes/plane.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- the graspable object -->
+  <joint name="map_graspable_joint" type="floating">
+    <origin xyz="0.0 0.0 0.2" rpy="0 0 0"/>
+    <parent link="map"/>
+    <child link="graspable"/>
+  </joint>
+  <link name="graspable">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0"/>
+      <mass value="0.63352875"/>
+      <inertia ixx="0.00102103" ixy="0.00000775" ixz="-0.00001230" iyy="0.00080944" iyz="-0.00014417" izz="0.00068788"/>
+    </inertial>
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://barrett_hand_sim_dart/meshes/cuboid.stl"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://barrett_hand_sim_dart/meshes/cuboid.stl"/>
+      </geometry>
+    </collision>
+  </link>
+</robot>

@@ -83,7 +83,7 @@ int visualiseAllFeatures(MarkerPublisher &markers_pub, int m_id, const std::vect
 //        m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, frame_id);
 //        m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, frame_id);
         double color = f_vec[idx].pc1_;
-        m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, color, color, color, 1, 0.001, 0.001, 0.001, "world");
+        m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, color, color, color, 1, 0.001, 0.001, 0.001, frame_id);
     }
     markers_pub.addEraseMarkers(m_id, m_id+300);
     markers_pub.publish();
