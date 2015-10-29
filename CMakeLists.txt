@@ -32,7 +32,7 @@ add_executable(barrett_hand_sim_dart_generate_object_model src/generate_object_m
 add_executable(barrett_hand_sim_dart_generate_query_density src/generate_query_density.cpp src/mesh_sampling.cpp src/models.cpp src/visual_debug.cpp)
 add_executable(barrett_hand_sim_dart_select_grasp src/select_grasp.cpp src/mesh_sampling.cpp src/models.cpp src/visual_debug.cpp)
 
-target_link_libraries(barrett_hand_sim_dart_test ${catkin_LIBRARIES} ${DART_LIBRARIES})
+target_link_libraries(barrett_hand_sim_dart_test ${catkin_LIBRARIES} ${DART_LIBRARIES} ${DARTCore_LIBRARIES} ${ASSIMP_LIBRARIES})
 target_link_libraries(barrett_hand_sim_dart_grasp ${catkin_LIBRARIES} ${DART_LIBRARIES} ${DARTCore_LIBRARIES} ${ASSIMP_LIBRARIES})
 target_link_libraries(barrett_hand_sim_dart_experiments ${catkin_LIBRARIES} ${DART_LIBRARIES} ${DARTCore_LIBRARIES} ${ASSIMP_LIBRARIES})
 target_link_libraries(barrett_hand_sim_dart_generate_object_model ${catkin_LIBRARIES} ${DART_LIBRARIES} ${DARTCore_LIBRARIES} ${ASSIMP_LIBRARIES})
