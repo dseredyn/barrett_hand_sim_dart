@@ -98,7 +98,7 @@ bool checkCollision(dart::simulation::World* world, const dart::dynamics::Skelet
     return collision;
 }
 
-void addScene(MarkerPublisher &markers_pub, tf::TransformBroadcaster &br, dart::simulation::World* world, dart::dynamics::SkeletonPtr &bh) {
+int addScene(MarkerPublisher &markers_pub, tf::TransformBroadcaster &br, int m_id, dart::simulation::World* world, dart::dynamics::SkeletonPtr &bh) {
     // visualisation
     for (int i = 0; i < 100; i++) {
         for (int bidx = 0; bidx < bh->getNumBodyNodes(); bidx++) {
@@ -109,7 +109,6 @@ void addScene(MarkerPublisher &markers_pub, tf::TransformBroadcaster &br, dart::
             publishTransform(br, T_W_L, b->getName(), "world");
         }
 
-        int m_id = 0;
         for (int skidx = 0; skidx < world->getNumSkeletons(); skidx++) {
             dart::dynamics::SkeletonPtr sk = world->getSkeleton(skidx);
             if (sk->getName() == bh->getName()) {
@@ -122,6 +121,9 @@ void addScene(MarkerPublisher &markers_pub, tf::TransformBroadcaster &br, dart::
                 Eigen::Vector3d color(0, 0.8, 0);
                 if (b->getName() == "graspable") {
                     color = Eigen::Vector3d(0.8, 0, 0);
+                }
+                else {
+                    continue;
                 }
                 KDL::Frame T_W_L;
                 EigenTfToKDL(tf, T_W_L);
@@ -136,6 +138,7 @@ void addScene(MarkerPublisher &markers_pub, tf::TransformBroadcaster &br, dart::
             }
         }
     }
+    return m_id;
 }
 
 double getTransitionProbability(double cost1, double cost2, double temperature) {
@@ -335,7 +338,7 @@ int main(int argc, char** argv) {
     world->setGravity(grav);
     scene->getBodyNode(ob_name)->setFrictionCoeff(0.1);
 
-    addScene(markers_pub, br, world, bh);
+    addScene(markers_pub, br, 0, world, bh);
     markers_pub.publish();
     ros::spinOnce();
 
@@ -345,7 +348,7 @@ int main(int argc, char** argv) {
             world->step(false);
 
             if (counter % 10 == 0) {
-                addScene(markers_pub, br, world, bh);
+                addScene(markers_pub, br, 0, world, bh);
                 markers_pub.publish();
                 ros::spinOnce();
             }
@@ -379,8 +382,15 @@ int main(int argc, char** argv) {
     // publish grasped object model
     publishTransform(br, T_W_O, ob_name, "world");
 
-//    m_id = visualiseAllFeatures(markers_pub, m_id, om->getFeaturesData(), ob_name);
+    m_id = addScene(markers_pub, br, m_id, world, bh);
+//    m_id = visualiseQueryDensityFunction(br, markers_pub, m_id, *(qd.get()), "right_HandFingerOneKnuckleThreeLink", KDL::Frame(), T_W_O, ob_name);
 
+//    m_id = visualiseAllFeatures(markers_pub, m_id, om->getFeaturesData(), ob_name);
+    markers_pub.publish();
+    ros::spinOnce();
+    ros::Duration(1.0).sleep();
+
+    return 0;
     int n_solutions = 400;
     std::vector<GraspSolution > solutions;
     for (int  i = 0; i < n_solutions; i++) {
@@ -502,7 +512,7 @@ int main(int argc, char** argv) {
     std::reverse(solutions.begin(), solutions.end());
 //    std::cout << solutions[0].score_ << "   " << solutions[1].score_ << "   " << solutions[2].score_ << "   " << solutions[3].score_ << std::endl;
 
-    addScene(markers_pub, br, world, bh);
+    addScene(markers_pub, br, 0, world, bh);
     markers_pub.publish();
     ros::spinOnce();
 
@@ -692,7 +702,7 @@ int main(int argc, char** argv) {
                 j->setForce(0, 0.02*(u-dq) + Cg(qidx));
             }
             if (counter % 10 == 0) {
-                addScene(markers_pub, br, world, bh);
+                addScene(markers_pub, br, 0, world, bh);
                 markers_pub.publish();
                 ros::spinOnce();
             }

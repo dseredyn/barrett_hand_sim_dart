@@ -201,12 +201,12 @@ int visualiseQueryDensityParticles(MarkerPublisher &markers_pub, int m_id, const
 int visualiseQueryDensityFunction(tf::TransformBroadcaster &br, MarkerPublisher &markers_pub, int m_id, const QueryDensity &qd, const std::string &link_name, const KDL::Frame &T_L_C, const KDL::Frame &T_W_O, const std::string &frame_id) {
     // visualisation of query density
 //    KDL::Rotation rot(KDL::Rotation::RotZ(-(-90.0+30.0)/180.0*PI));
-    KDL::Rotation rot(KDL::Rotation::RotY((-90.0+0.0)/180.0*PI) * KDL::Rotation::RotZ((30.0+0.0)/180.0*PI));
-    double grid_size = 0.004;
+    KDL::Rotation rot(KDL::Rotation::RotY((-90.0+0.0)/180.0*PI) * KDL::Rotation::RotZ((80.0+100.0)/180.0*PI));
+    double grid_size = 0.005;
     std::list<std::pair<KDL::Frame, double> > test_list;
     double max_cost = 0.0;
-    for (double x = -0.10; x < 0.10; x += grid_size) {
-        for (double y = -0.12; y < 0.12; y += grid_size) {
+    for (double x = -0.15; x < 0.35; x += grid_size) {
+        for (double y = -0.22; y < 0.22; y += grid_size) {
             KDL::Frame T_O_L = KDL::Frame(rot, KDL::Vector(0, y, x));
             double cost = qd.getQueryDensity(link_name, T_O_L * T_L_C);
             test_list.push_back(std::make_pair(T_O_L, cost));
@@ -225,7 +225,7 @@ int visualiseQueryDensityFunction(tf::TransformBroadcaster &br, MarkerPublisher 
 
     markers_pub.publish();
     for (int i = 0; i < 100; i++) {
-        publishTransform(br, T_W_O * KDL::Frame(rot, KDL::Vector(0,0,-0.1)), link_name, "world");
+        publishTransform(br, T_W_O * KDL::Frame(rot, KDL::Vector(0,0,-0.2)), link_name, "world");
         ros::spinOnce();
         ros::Duration(0.001).sleep();
     }
