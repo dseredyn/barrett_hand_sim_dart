@@ -610,6 +610,7 @@ static const double PI(3.141592653589793);
                 std::istringstream strs_q(str);
                 strs_q >> u_qd->qd_map_[link_name].vec_[features_count].q_(0) >> u_qd->qd_map_[link_name].vec_[features_count].q_(1) >>
                     u_qd->qd_map_[link_name].vec_[features_count].q_(2) >> u_qd->qd_map_[link_name].vec_[features_count].q_(3);
+                u_qd->qd_map_[link_name].vec_[features_count].q_.normalize();
 
             	str = elementQDE->Attribute("weight");
                 if (!str) {
