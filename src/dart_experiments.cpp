@@ -123,7 +123,7 @@ int addScene(MarkerPublisher &markers_pub, tf::TransformBroadcaster &br, int m_i
                     color = Eigen::Vector3d(0.8, 0, 0);
                 }
                 else {
-                    continue;
+//                    continue;
                 }
                 KDL::Frame T_W_L;
                 EigenTfToKDL(tf, T_W_L);
@@ -132,7 +132,7 @@ int addScene(MarkerPublisher &markers_pub, tf::TransformBroadcaster &br, int m_i
                     dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
                     if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
                         std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-                        m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), color(0), color(1), color(2), 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
+                        m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), color(0), color(1), color(2), 1, 1, 1, 1, msh->getMeshUri(), b->getName());
                     }
                 }
             }
@@ -390,7 +390,7 @@ int main(int argc, char** argv) {
     ros::spinOnce();
     ros::Duration(1.0).sleep();
 
-    return 0;
+//    return 0;
     int n_solutions = 400;
     std::vector<GraspSolution > solutions;
     for (int  i = 0; i < n_solutions; i++) {
@@ -421,6 +421,7 @@ int main(int argc, char** argv) {
         sol.T_W_E_ = T_W_O * T_O_L1 * T_L1_E;
         sol.q_map_ = q_sample;
         sol.evaluate(bh, T_W_O, hm, qd, cm);
+        std::cout << "sol.score_ " << sol.score_ << std::endl;
         if (sol.score_ != 0.0) {
             solutions.push_back(sol);
             std::cout << "found solution: " << sol.score_ << std::endl;

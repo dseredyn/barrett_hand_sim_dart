@@ -129,7 +129,7 @@ int main(int argc, char** argv) {
                     dart::dynamics::ConstShapePtr sh = b->getCollisionShape(cidx);
                     if (sh->getShapeType() == dart::dynamics::Shape::MESH) {
                         std::shared_ptr<const dart::dynamics::MeshShape > msh = std::static_pointer_cast<const dart::dynamics::MeshShape >(sh);
-                        m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, std::string("file://") + msh->getMeshPath(), b->getName());
+                        m_id = markers_pub.addMeshMarker(m_id, KDL::Vector(), 0, 1, 0, 1, 1, 1, 1, msh->getMeshUri(), b->getName());
                     }
                 }
             }
@@ -266,7 +266,7 @@ int main(int argc, char** argv) {
 
     om->randomizeSurface();
 
-
+    m_id = 0;
     m_id = visualiseAllFeatures(markers_pub, m_id, om->getFeaturesData(), "world");
 
     std::cout << "om.getPointFeatures().size(): " << om->getPointFeatures().size() << std::endl;
