@@ -74,16 +74,23 @@ int visualiseContactRegion(MarkerPublisher &markers_pub, int m_id, const std::ve
 }
 
 int visualiseAllFeatures(MarkerPublisher &markers_pub, int m_id, const std::vector<ObjectModel::Feature > &f_vec, const std::string &frame_id) {
+    int rand_idx = rand()%f_vec.size();
     // visuzlise all features on the object
     for (int idx = 0; idx < f_vec.size(); idx++) {
         const KDL::Frame &T_O_F = f_vec[idx].T_O_F_;
         KDL::Vector v1 = T_O_F * KDL::Vector();
-        KDL::Vector v2 = T_O_F * KDL::Vector(0, 0, 0.01);
-        KDL::Vector v3 = T_O_F * KDL::Vector(0.01, 0, 0);
-//        m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.0005, frame_id);
-//        m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.0005, frame_id);
-        double color = f_vec[idx].pc1_;
-        m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, color, color, color, 1, 0.001, 0.001, 0.001, frame_id);
+        double frame_size = 0.05;
+        KDL::Vector v2 = T_O_F * KDL::Vector(0, 0, frame_size);
+        KDL::Vector v3 = T_O_F * KDL::Vector(frame_size, 0, 0);
+        KDL::Vector v4 = T_O_F * KDL::Vector(0, frame_size, 0);
+        if (idx == rand_idx) {
+            m_id = markers_pub.addVectorMarker(m_id, v1, v3, 1, 0, 0, 1, 0.05*frame_size, frame_id);
+            m_id = markers_pub.addVectorMarker(m_id, v1, v4, 0, 1, 0, 1, 0.05*frame_size, frame_id);
+            m_id = markers_pub.addVectorMarker(m_id, v1, v2, 0, 0, 1, 1, 0.05*frame_size, frame_id);
+        }
+        double color1 = f_vec[idx].pc1_*1.6;
+        double color2 = f_vec[idx].pc2_*1.6;
+        m_id = markers_pub.addSinglePointMarkerCube(m_id, v1, color1+0.1, color2+0.1, 0+0.1, 1, 0.002, 0.002, 0.002, frame_id);
     }
     markers_pub.addEraseMarkers(m_id, m_id+300);
     markers_pub.publish();
