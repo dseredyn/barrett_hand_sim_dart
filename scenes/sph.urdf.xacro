@@ -5,7 +5,6 @@
                         xmlns:xacro="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
 	 name="velma">
 
-  <xacro:include filename="$(find lwr_defs)/defs/materials.xml"/>
   <xacro:include filename="$(find barrett_hand_defs)/defs/barret_hand.urdf.xacro"/>
   
   <property name="M_PI" value="3.1415926535897931" />
