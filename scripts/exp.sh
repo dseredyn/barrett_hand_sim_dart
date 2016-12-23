@@ -1,13 +1,15 @@
 #!/bin/bash
 
-rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_container_1.urdf src/barrett_hand_sim_dart/scenes/test_container_1.urdf.xacro
-rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_container_2.urdf src/barrett_hand_sim_dart/scenes/test_container_2.urdf.xacro
-rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_cuboid.urdf src/barrett_hand_sim_dart/scenes/test_cuboid.urdf.xacro
-rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_cylinder4_lying.urdf src/barrett_hand_sim_dart/scenes/test_cylinder4_lying.urdf.xacro
-rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_cylinder4_standing.urdf src/barrett_hand_sim_dart/scenes/test_cylinder4_standing.urdf.xacro
-rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_kettle.urdf src/barrett_hand_sim_dart/scenes/test_kettle.urdf.xacro
-rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_mug.urdf src/barrett_hand_sim_dart/scenes/test_mug.urdf.xacro
-rosrun xacro xacro -o src/barrett_hand_sim_dart/scenes/test_jar.urdf src/barrett_hand_sim_dart/scenes/test_jar.urdf.xacro
+barrett_hand_sim_dart_dir=$(rospack find barrett_hand_sim_dart)
+
+rosrun xacro xacro -o ${barrett_hand_sim_dart_dir}/scenes/test_container_1.urdf ${barrett_hand_sim_dart_dir}/scenes/test_container_1.urdf.xacro
+rosrun xacro xacro -o ${barrett_hand_sim_dart_dir}/scenes/test_container_2.urdf ${barrett_hand_sim_dart_dir}/scenes/test_container_2.urdf.xacro
+rosrun xacro xacro -o ${barrett_hand_sim_dart_dir}/scenes/test_cuboid.urdf ${barrett_hand_sim_dart_dir}/scenes/test_cuboid.urdf.xacro
+rosrun xacro xacro -o ${barrett_hand_sim_dart_dir}/scenes/test_cylinder4_lying.urdf ${barrett_hand_sim_dart_dir}/scenes/test_cylinder4_lying.urdf.xacro
+rosrun xacro xacro -o ${barrett_hand_sim_dart_dir}/scenes/test_cylinder4_standing.urdf ${barrett_hand_sim_dart_dir}/scenes/test_cylinder4_standing.urdf.xacro
+rosrun xacro xacro -o ${barrett_hand_sim_dart_dir}/scenes/test_kettle.urdf ${barrett_hand_sim_dart_dir}/scenes/test_kettle.urdf.xacro
+rosrun xacro xacro -o ${barrett_hand_sim_dart_dir}/scenes/test_mug.urdf ${barrett_hand_sim_dart_dir}/scenes/test_mug.urdf.xacro
+rosrun xacro xacro -o ${barrett_hand_sim_dart_dir}/scenes/test_jar.urdf ${barrett_hand_sim_dart_dir}/scenes/test_jar.urdf.xacro
 
 rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_container_1.urdf grasp_models/sph.xml test_result_000.txt
 rosrun barrett_hand_sim_dart barrett_hand_sim_dart_experiments barrett_hand_sim_dart /scenes/test_container_1.urdf grasp_models/pinch.xml test_result_001.txt
