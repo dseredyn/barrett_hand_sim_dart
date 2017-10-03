@@ -66,7 +66,7 @@
 #include "models.h"
 #include "visual_debug.h"
 
-#include <kin_model/kin_model.h>
+#include <kin_dyn_model/kin_model.h>
 
 const double PI(3.141592653589793);
 
